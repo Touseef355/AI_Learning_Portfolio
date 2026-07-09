@@ -13,7 +13,19 @@ class ParkingSite(models.Model):
     name = models.CharField(max_length=100)
     location = models.CharField(max_length=255)
     capacity = models.IntegerField()
+    address = models.TextField(null=True, blank=True)
+    phone = models.CharField(max_length=20, null=True, blank=True)
+    email = models.CharField(max_length=100, null=True, blank=True)
+    total_slots = models.IntegerField(null=True, blank=True)
+    total_floors = models.IntegerField(null=True, blank=True)
+    opening_time = models.TimeField(null=True, blank=True)
+    closing_time = models.TimeField(null=True, blank=True)
+    status = models.CharField(max_length=50, null=True, blank=True)
+    price_per_hour = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    contact_number = models.CharField(max_length=20, null=True, blank=True)
+    city = models.TextField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = "parking_sites"
@@ -32,7 +44,8 @@ class ParkingSlot(models.Model):
     parking_site = models.ForeignKey(
         ParkingSite,
         on_delete=models.CASCADE,
-        related_name="slots"
+        related_name="slots",
+        db_column="site_id"
     )
     slot_number = models.CharField(max_length=20)
     slot_type = models.CharField(max_length=20, choices=SLOT_TYPE_CHOICES)

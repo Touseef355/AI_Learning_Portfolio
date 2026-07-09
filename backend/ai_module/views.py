@@ -1106,7 +1106,7 @@ class RejectExitView(APIView):
         }, status=status.HTTP_200_OK)
 
 # ─── Admin: Full AI / System logs list ───────────────────────────────────────
-from accounts.views import IsAdmin
+from accounts.permissions import IsAdmin
 from django.db.models import Q as Q_
 
 class AdminAiLogListView(APIView):
@@ -1220,3 +1220,4 @@ class AdminAiLogListView(APIView):
             "page_size": page_size,
             "results":   data,
         }, status=status.HTTP_200_OK)
+

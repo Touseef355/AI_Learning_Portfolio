@@ -4,7 +4,7 @@ import {
   CheckCircle, XCircle, RefreshCw, Camera,
   ScanLine, TrendingUp, TrendingDown
 } from 'lucide-react'
-import { supabase } from '../../supabase'
+import api from '../../api/axios'
 
 function pct(success, total) {
   if (!total) return '—'
@@ -39,38 +39,34 @@ export default function AIModelMonitor() {
   const fetchData = async () => {
     setLoading(true)
     try {
-      // Fetch AI logs from ai_logs table
-      const { data: aiLogs, error: aiErr } = await supabase
-        .from('ai_logs')
-        .select('*, parking_sites(name, id)')
-        .order('created_at', { ascending: false })
-        .limit(200)
+      const [logsRes, sitesRes] = await Promise.all([
+        api.get('/ai/admin/logs/'),
+        api.get('/parking/sites/')
+      ])
 
-      const { data: sitesData } = await supabase
-        .from('parking_sites')
-        .select('id, name')
+      const aiLogs = logsRes.data || []
+      const sitesData = sitesRes.data || []
 
-      setSites(sitesData || [])
+      setSites(sitesData)
 
-      if (!aiErr && aiLogs && aiLogs.length > 0) {
+      if (aiLogs && aiLogs.length > 0) {
         setLogs(aiLogs.map(l => ({
           id:         l.id,
-          time:       l.detected_at || l.created_at,
-          site:       l.parking_sites?.name || '—',
-          plate:      l.plate_number || l.vehicle_no || '???',
-          model:      (l.model_type || l.model || 'LPD').toUpperCase(),
-          confidence: Math.round((l.confidence_score ?? l.confidence ?? 0) * (l.confidence_score <= 1 ? 100 : 1)),
-          status:     (l.status || '').toLowerCase() === 'success' || l.is_success ? 'success' : 'failed',
-          note:       l.note || l.notes || '',
+          time:       l.time || l.created_at,
+          site:       l.site || '—',
+          plate:      l.plate || '???',
+          model:      (l.model || 'LPD').toUpperCase(),
+          confidence: Math.round((l.confidence || 0) * (l.confidence <= 1 ? 100 : 1)),
+          status:     (l.status || '').toLowerCase() === 'success' || l.status === 'approved' ? 'success' : 'failed',
+          note:       l.note || '',
         })))
 
-        // Compute per-site stats from AI logs
         const statsMap = {}
         aiLogs.forEach(l => {
-          const sName = l.parking_sites?.name || 'Unknown'
+          const sName = l.site || 'Unknown'
           if (!statsMap[sName]) statsMap[sName] = { site: sName, lpd_total: 0, lpd_success: 0, ocr_total: 0, ocr_success: 0, manual: 0 }
-          const model = (l.model_type || l.model || 'LPD').toUpperCase()
-          const ok = (l.status || '').toLowerCase() === 'success' || l.is_success
+          const model = (l.model || 'LPD').toUpperCase()
+          const ok = (l.status || '').toLowerCase() === 'success' || l.status === 'approved'
           if (model === 'LPD') {
             statsMap[sName].lpd_total++
             if (ok) statsMap[sName].lpd_success++
@@ -78,13 +74,12 @@ export default function AIModelMonitor() {
             statsMap[sName].ocr_total++
             if (ok) statsMap[sName].ocr_success++
           }
-          if ((l.is_manual || l.manual)) statsMap[sName].manual++
+          if (l.method && l.method.toLowerCase() === 'manual') statsMap[sName].manual++
         })
         setSiteStats(Object.values(statsMap))
       } else {
-        // Fallback: if ai_logs table doesn't exist or is empty, show empty state
         setLogs([])
-        setSiteStats((sitesData || []).map(s => ({
+        setSiteStats(sitesData.map(s => ({
           site: s.name, lpd_total: 0, lpd_success: 0, ocr_total: 0, ocr_success: 0, manual: 0
         })))
       }
@@ -97,11 +92,6 @@ export default function AIModelMonitor() {
 
   useEffect(() => {
     fetchData()
-    const channel = supabase
-      .channel('ai-monitor-realtime')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'ai_logs' }, fetchData)
-      .subscribe()
-    return () => supabase.removeChannel(channel)
   }, [])
 
   const allSites = ['All Sites', ...sites.map(s => s.name)]

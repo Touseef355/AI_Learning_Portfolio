@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../../api/axios'
-import { Pencil, Trash2, Plus, X, Building2, MapPin, Phone, Mail, DollarSign, Eye } from 'lucide-react'
-import { getUser } from '../../utils/auth'
+import { Pencil, Trash2, Plus, X, Building2, MapPin, Eye } from 'lucide-react'
 
 export default function SiteManagement() {
   const navigate = useNavigate()
@@ -13,15 +12,8 @@ export default function SiteManagement() {
   const [selectedSite, setSelectedSite] = useState(null)
   const [formData, setFormData] = useState({
     name: '',
-    address: '',
-    total_slots: '',
-    price_per_hour: '',
-    total_floors: '2',
-    opening_time: '06:00',
-    closing_time: '23:00',
-    contact_number: '',
-    email: '',
-    status: 'active'
+    location: '',
+    capacity: '',
   })
 
   useEffect(() => {
@@ -32,17 +24,11 @@ export default function SiteManagement() {
     try {
       setLoading(true)
       const res = await api.get('/parking/sites/')
-      // Map API response to UI fields (location -> address, capacity -> total_slots)
       const mapped = (res.data || []).map(s => ({
         id: s.id,
         name: s.name,
-        address: s.location || '',
-        total_slots: s.capacity || 0,
-        price_per_hour: s.price_per_hour || 50,
-        total_floors: s.total_floors || 1,
-        opening_time: s.opening_time || '00:00',
-        closing_time: s.closing_time || '23:59',
-        status: s.status || 'active'
+        location: s.location || '',
+        capacity: s.capacity || 0,
       }))
       setSites(mapped)
     } catch (error) {
@@ -56,18 +42,7 @@ export default function SiteManagement() {
   const handleAddNew = () => {
     setIsEditing(false)
     setSelectedSite(null)
-    setFormData({
-      name: '',
-      address: '',
-      total_slots: '',
-      price_per_hour: '',
-      total_floors: '2',
-      opening_time: '06:00',
-      closing_time: '23:00',
-      contact_number: '',
-      email: '',
-      status: 'active'
-    })
+    setFormData({ name: '', location: '', capacity: '' })
     setShowModal(true)
   }
 
@@ -76,15 +51,8 @@ export default function SiteManagement() {
     setSelectedSite(site)
     setFormData({
       name: site.name || '',
-      address: site.address || '',
-      total_slots: site.total_slots || '',
-      price_per_hour: site.price_per_hour || '',
-      total_floors: site.total_floors || '2',
-      opening_time: site.opening_time || '06:00',
-      closing_time: site.closing_time || '23:00',
-      contact_number: site.contact_number || '',
-      email: site.email || '',
-      status: site.status || 'active'
+      location: site.location || '',
+      capacity: site.capacity || '',
     })
     setShowModal(true)
   }
@@ -106,8 +74,8 @@ export default function SiteManagement() {
     try {
       const sitePayload = {
         name: formData.name,
-        location: formData.address,
-        capacity: parseInt(formData.total_slots),
+        location: formData.location,
+        capacity: parseInt(formData.capacity) || 0,
       }
 
       if (isEditing) {
@@ -127,11 +95,7 @@ export default function SiteManagement() {
 
   const getStats = () => {
     const total = sites.length
-    const active = sites.filter(s => s.status === 'active').length
-    const inactive = total - active
-    const totalRevenue = sites.reduce((sum, s) => sum + (s.price_per_hour * s.total_slots * 8), 0)
-
-    return { total, active, inactive, totalRevenue }
+    return { total }
   }
 
   const stats = getStats()
@@ -155,22 +119,22 @@ export default function SiteManagement() {
       </div>
 
       {/* STATS CARDS */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
         <div className="bg-white border rounded-lg p-4">
           <p className="text-sm text-gray-500">Total Sites</p>
           <p className="text-3xl font-bold">{stats.total}</p>
         </div>
         <div className="bg-white border rounded-lg p-4">
-          <p className="text-sm text-gray-500">Active</p>
-          <p className="text-3xl font-bold text-green-600">{stats.active}</p>
+          <p className="text-sm text-gray-500">Total Capacity</p>
+          <p className="text-3xl font-bold text-blue-600">{sites.reduce((s, site) => s + site.capacity, 0)}</p>
         </div>
         <div className="bg-white border rounded-lg p-4">
-          <p className="text-sm text-gray-500">Inactive</p>
-          <p className="text-3xl font-bold text-red-600">{stats.inactive}</p>
+          <p className="text-sm text-gray-500">Avg Capacity</p>
+          <p className="text-3xl font-bold text-green-600">{stats.total ? Math.round(sites.reduce((s, site) => s + site.capacity, 0) / stats.total) : 0}</p>
         </div>
         <div className="bg-white border rounded-lg p-4">
-          <p className="text-sm text-gray-500">Est. Daily Revenue</p>
-          <p className="text-3xl font-bold text-blue-600">Rs. {(stats.totalRevenue / 1000).toFixed(1)}K</p>
+          <p className="text-sm text-gray-500">Status</p>
+          <p className="text-3xl font-bold text-green-600">Active</p>
         </div>
       </div>
 
@@ -191,10 +155,8 @@ export default function SiteManagement() {
             <thead className="bg-gray-50 border-b">
               <tr>
                 <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase">SITE</th>
-                <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase">CONTACT</th>
-                <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase">SLOTS</th>
-                <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase">RATE/HR</th>
-                <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase">STATUS</th>
+                <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase">LOCATION</th>
+                <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase">CAPACITY</th>
                 <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase">ACTIONS</th>
               </tr>
             </thead>
@@ -208,40 +170,18 @@ export default function SiteManagement() {
                       </div>
                       <div>
                         <p className="font-semibold text-gray-900">{site.name}</p>
-                        <p className="text-xs text-gray-500 flex items-center gap-1">
-                          <MapPin size={12} />
-                          {site.address?.substring(0, 30)}...
-                        </p>
                       </div>
                     </div>
                   </td>
                   <td className="px-6 py-4">
-                    <div className="text-sm">
-                      <p className="text-gray-900 flex items-center gap-1">
-                        <Mail size={14} />
-                        {site.email || 'N/A'}
-                      </p>
-                      <p className="text-gray-500 flex items-center gap-1 mt-1">
-                        <Phone size={14} />
-                        {site.contact_number || 'N/A'}
-                      </p>
-                    </div>
+                    <p className="text-sm text-gray-600 flex items-center gap-1">
+                      <MapPin size={14} />
+                      {site.location?.substring(0, 40) || 'N/A'}
+                    </p>
                   </td>
                   <td className="px-6 py-4">
                     <span className="bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-sm font-medium">
-                      {site.total_slots} Slots
-                    </span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <p className="text-green-600 font-semibold">Rs. {site.price_per_hour}</p>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                      site.status === 'active'
-                       ? 'bg-green-100 text-green-700'
-                        : 'bg-red-100 text-red-700'
-                    }`}>
-                      {site.status === 'active'? '● Active' : '● Inactive'}
+                      {site.capacity} Slots
                     </span>
                   </td>
                   <td className="px-6 py-4">
@@ -307,103 +247,27 @@ export default function SiteManagement() {
                 </div>
 
                 <div className="col-span-2">
-                  <label className="block text-sm font-medium mb-1">Address *</label>
+                  <label className="block text-sm font-medium mb-1">Location *</label>
                   <input
                     type="text"
-                    value={formData.address}
-                    onChange={(e) => setFormData({...formData, address: e.target.value})}
+                    value={formData.location}
+                    onChange={(e) => setFormData({...formData, location: e.target.value})}
                     required
                     className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                     placeholder="123 Main Street, Islamabad"
                   />
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium mb-1">Total Slots *</label>
+                <div className="col-span-2">
+                  <label className="block text-sm font-medium mb-1">Capacity (Total Slots) *</label>
                   <input
                     type="number"
-                    value={formData.total_slots}
-                    onChange={(e) => setFormData({...formData, total_slots: e.target.value})}
+                    value={formData.capacity}
+                    onChange={(e) => setFormData({...formData, capacity: e.target.value})}
                     required
+                    min="1"
                     className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                     placeholder="85"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-1">Total Floors</label>
-                  <input
-                    type="number"
-                    value={formData.total_floors}
-                    onChange={(e) => setFormData({...formData, total_floors: e.target.value})}
-                    className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                    placeholder="2"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-1">Price/Hour *</label>
-                  <input
-                    type="number"
-                    value={formData.price_per_hour}
-                    onChange={(e) => setFormData({...formData, price_per_hour: e.target.value})}
-                    required
-                    className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                    placeholder="100"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-1">Status</label>
-                  <select
-                    value={formData.status}
-                    onChange={(e) => setFormData({...formData, status: e.target.value})}
-                    className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                  >
-                    <option value="active">Active</option>
-                    <option value="inactive">Inactive</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-1">Opening Time</label>
-                  <input
-                    type="time"
-                    value={formData.opening_time}
-                    onChange={(e) => setFormData({...formData, opening_time: e.target.value})}
-                    className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-1">Closing Time</label>
-                  <input
-                    type="time"
-                    value={formData.closing_time}
-                    onChange={(e) => setFormData({...formData, closing_time: e.target.value})}
-                    className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-1">Contact</label>
-                  <input
-                    type="tel"
-                    value={formData.contact_number}
-                    onChange={(e) => setFormData({...formData, contact_number: e.target.value})}
-                    className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                    placeholder="+92 300 1234567"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-1">Email</label>
-                  <input
-                    type="email"
-                    value={formData.email}
-                    onChange={(e) => setFormData({...formData, email: e.target.value})}
-                    className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                    placeholder="downtown@smartpark.com"
                   />
                 </div>
               </div>

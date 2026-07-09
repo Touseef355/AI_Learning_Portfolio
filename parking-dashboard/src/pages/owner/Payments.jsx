@@ -1,26 +1,22 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import api from '../../api/axios'
 import { Wallet, TrendingUp, Download, Search, Clock, DollarSign } from 'lucide-react'
-import { getUser } from '../../utils/auth'
 
 const Payments = () => {
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState('All')
   const [dateFilter, setDateFilter] = useState('All Time')
   const [payments, setPayments] = useState([])
-  const [siteId, setSiteId] = useState(null)
-  const [sites, setSites] = useState([])
-  const [monthlyRevenue, setMonthlyRevenue] = useState([])
 
   useEffect(() => {
     fetchPayments()
   }, [])
 
-  const fetchPayments = async () => {
+  async function fetchPayments() {
     try {
       const res = await api.get('/payments/owner/')
       const d = res.data
-      const mapped = (d.payments || []).map((p, i) => ({
+      const mapped = (d.payments || []).map((p) => ({
         id: p.id,
         bookingId: p.id,
         customer: p.plate_number || 'Guest',
@@ -29,11 +25,9 @@ const Payments = () => {
         method: p.payment_method || 'Cash',
         date: p.paid_at ? p.paid_at.split('T')[0] : '-',
         time: p.paid_at ? new Date(p.paid_at).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' }) : '-',
-        status: ['success', 'completed'].includes(p.status?.toLowerCase()) ? 'Completed' : 'Pending',
-        cashier: '-'
+        status: p.status === 'success' ? 'Completed' : 'Pending',
       }))
       setPayments(mapped)
-      setMonthlyRevenue(d.monthly_revenue || [])
     } catch (err) {
       console.error(err)
     }
@@ -70,8 +64,8 @@ const Payments = () => {
   }, [payments])
 
   const handleExport = () => {
-    const headers = ['Payment ID','Booking ID','Customer','Vehicle','Amount','Method','Date','Time','Status','Cashier']
-    const rows = filteredPayments.map(p => [p.id,p.bookingId,p.customer,p.vehicle,p.amount,p.method,p.date,p.time,p.status,p.cashier])
+    const headers = ['Payment ID','Customer','Vehicle','Amount','Method','Date','Time','Status']
+    const rows = filteredPayments.map(p => [p.id, p.customer, p.vehicle, p.amount, p.method, p.date, p.time, p.status])
     const csv = [headers,...rows].map(r => r.join(',')).join('\n')
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
@@ -83,8 +77,8 @@ const Payments = () => {
     document.body.removeChild(link)
   }
 
-  const getStatusColor = (s) => s === 'Completed'? 'bg-green-100 text-green-700' : s === 'Pending'? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'
-  const getMethodColor = (m) => m === 'Cash'? 'bg-blue-100 text-blue-700' : m === 'Card'? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-700'
+  const getStatusColor = (s) => s === 'Completed' ? 'bg-green-100 text-green-700' : s === 'Pending' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'
+  const getMethodColor = (m) => m === 'Cash' ? 'bg-blue-100 text-blue-700' : m === 'Card' ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-700'
 
   return (
     <div className="p-6 space-y-6 bg-gray-50 min-h-screen">
@@ -94,28 +88,9 @@ const Payments = () => {
           <p className="text-gray-600 mt-1">Track and manage all payment transactions</p>
         </div>
         <button onClick={handleExport} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
-          <Download className="w-4 h-4" /> Export Report
+          <Download className="w-4 h-4" /> Export CSV
         </button>
       </div>
-
-      {sites.length > 0 && (
-        <div className="bg-white rounded-xl p-4 border border-gray-200 flex items-center gap-4">
-          <span className="text-sm font-medium text-gray-700">Select Site:</span>
-          <select
-            value={siteId || ''}
-            onChange={async (e) => {
-              const selectedId = e.target.value
-              setSiteId(selectedId)
-              await fetchPayments(selectedId)
-            }}
-            className="px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            {sites.map(s => (
-              <option key={s.id} value={s.id}>{s.name}</option>
-            ))}
-          </select>
-        </div>
-      )}
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <div className="bg-white rounded-xl p-6 border border-gray-200">
@@ -171,7 +146,7 @@ const Payments = () => {
           </div>
           <div className="flex gap-2">
             <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="px-4 py-2 bg-gray-50 border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500">
-              <option>All</option><option>Completed</option><option>Pending</option><option>Failed</option>
+              <option>All</option><option>Completed</option><option>Pending</option>
             </select>
             <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} className="px-4 py-2 bg-gray-50 border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500">
               <option>All Time</option><option>Today</option><option>This Week</option><option>This Month</option>
@@ -192,22 +167,20 @@ const Payments = () => {
                 <th className="text-left text-xs font-medium text-gray-500 px-6 py-3">METHOD</th>
                 <th className="text-left text-xs font-medium text-gray-500 px-6 py-3">DATE & TIME</th>
                 <th className="text-left text-xs font-medium text-gray-500 px-6 py-3">STATUS</th>
-                <th className="text-left text-xs font-medium text-gray-500 px-6 py-3">CASHIER</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {filteredPayments.length === 0? (
-                <tr><td colSpan="8" className="px-6 py-8 text-center text-gray-500">No payments found</td></tr>
+              {filteredPayments.length === 0 ? (
+                <tr><td colSpan="7" className="px-6 py-8 text-center text-gray-500">No payments found</td></tr>
               ) : filteredPayments.map((p) => (
                 <tr key={p.id} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-6 py-4 text-sm font-medium text-gray-900">{p.id}</td>
-                  <td className="px-6 py-4"><p className="text-sm font-medium text-gray-900">{p.customer}</p><p className="text-xs text-gray-500">{p.bookingId}</p></td>
+                  <td className="px-6 py-4 text-sm font-medium text-gray-900 font-mono">{String(p.id).slice(-8)}</td>
+                  <td className="px-6 py-4"><p className="text-sm font-medium text-gray-900">{p.customer}</p></td>
                   <td className="px-6 py-4 text-sm text-gray-900 font-mono">{p.vehicle}</td>
-                  <td className="px-6 py-4"><span className="text-sm font-bold text-green-600">Rs. {p.amount}</span></td>
+                  <td className="px-6 py-4"><span className="text-sm font-bold text-green-600">Rs. {p.amount.toLocaleString()}</span></td>
                   <td className="px-6 py-4"><span className={`px-2 py-1 text-xs font-medium rounded-full ${getMethodColor(p.method)}`}>{p.method}</span></td>
                   <td className="px-6 py-4"><p className="text-sm text-gray-900">{p.date}</p><p className="text-xs text-gray-500">{p.time}</p></td>
                   <td className="px-6 py-4"><span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(p.status)}`}>{p.status}</span></td>
-                  <td className="px-6 py-4 text-sm text-gray-600">{p.cashier}</td>
                 </tr>
               ))}
             </tbody>

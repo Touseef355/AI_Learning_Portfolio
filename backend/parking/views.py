@@ -19,9 +19,9 @@ class ParkingSiteView(APIView):
 
     def post(self, request):
         #  Role check
-        if request.user.role != "parking_owner":
+        if request.user.role not in ["parking_owner", "admin"]:
             return Response(
-                {"error": "Only parking owners can create sites"},
+                {"error": "Only parking owners and admins can create sites"},
                 status=status.HTTP_403_FORBIDDEN
             )
         serializer = ParkingSiteSerializer(data=request.data)
@@ -36,6 +36,8 @@ class ParkingSiteDetailView(APIView):
 
     def get_object(self, pk, user):
         try:
+            if user.role == "admin":
+                return ParkingSite.objects.get(pk=pk)
             return ParkingSite.objects.get(pk=pk, owner=user)
         except ParkingSite.DoesNotExist:
             return None
@@ -51,7 +53,7 @@ class ParkingSiteDetailView(APIView):
         site = self.get_object(pk, request.user)
         if site is None:
             return Response({"error": "Site not found"}, status=status.HTTP_404_NOT_FOUND)
-        serializer = ParkingSiteSerializer(site, data=request.data)
+        serializer = ParkingSiteSerializer(site, data=request.data, partial=True)
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data, status=status.HTTP_200_OK)
@@ -87,10 +89,29 @@ class ParkingSlotView(APIView):
                 {"error": "Site not found"},
                 status=status.HTTP_403_FORBIDDEN
             )
+        if request.user.role == "parking_owner" and site.owner != request.user:
+            return Response({"error": "Not your site"}, status=status.HTTP_403_FORBIDDEN)
+
+        existing_count = ParkingSlot.objects.filter(parking_site=site).count()
+        if existing_count + 1 > (site.capacity or 9999):
+            return Response({
+                "error": f"Exceeds capacity. Site capacity is full ({site.capacity} slots)."
+            }, status=status.HTTP_400_BAD_REQUEST)
+
         serializer = ParkingSlotSerializer(data=request.data)
         if serializer.is_valid():
-            serializer.save(parking_site_id=site.id)
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
+            # Prevent 500 error on duplicate slots
+            slot_num = serializer.validated_data.get('slot_number')
+            if ParkingSlot.objects.filter(parking_site=site, slot_number=slot_num).exists():
+                return Response({"error": f"Slot {slot_num} already exists in this site."}, status=status.HTTP_400_BAD_REQUEST)
+                
+            try:
+                serializer.save(parking_site=site)
+                return Response(serializer.data, status=status.HTTP_201_CREATED)
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class ParkingSlotDetailView(APIView):
@@ -101,6 +122,14 @@ class ParkingSlotDetailView(APIView):
             return ParkingSlot.objects.get(pk=pk)
         except ParkingSlot.DoesNotExist:
             return None
+
+    def _can_modify(self, user, slot):
+        # Flagged in the merge audit: neither source backend checked
+        # ownership here, so any authenticated user of any role could edit
+        # or delete any slot by UUID. Same rule as the bulk slot endpoints.
+        return user.role == "admin" or (
+            user.role == "parking_owner" and slot.parking_site.owner == user
+        )
 
     def get(self, request, pk):
         slot = self.get_object(pk)
@@ -113,7 +142,9 @@ class ParkingSlotDetailView(APIView):
         slot = self.get_object(pk)
         if slot is None:
             return Response({"error": "Slot not found"}, status=status.HTTP_404_NOT_FOUND)
-        serializer = ParkingSlotSerializer(slot, data=request.data)
+        if not self._can_modify(request.user, slot):
+            return Response({"error": "Not your site"}, status=status.HTTP_403_FORBIDDEN)
+        serializer = ParkingSlotSerializer(slot, data=request.data, partial=True)
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data, status=status.HTTP_200_OK)
@@ -123,8 +154,188 @@ class ParkingSlotDetailView(APIView):
         slot = self.get_object(pk)
         if slot is None:
             return Response({"error": "Slot not found"}, status=status.HTTP_404_NOT_FOUND)
+        if not self._can_modify(request.user, slot):
+            return Response({"error": "Not your site"}, status=status.HTTP_403_FORBIDDEN)
         slot.delete()
         return Response({"message": "Slot deleted successfully"}, status=status.HTTP_200_OK)
+
+
+class BulkGenerateSlotsView(APIView):
+    """
+    POST /api/parking/sites/<site_id>/slots/bulk-generate/
+    Body: { "normal": 50, "vip": 10, "disabled": 5,
+            "normal_rate": 100, "vip_rate": 250, "disabled_rate": 80 }
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, site_id):
+        if request.user.role not in ["parking_owner", "admin"]:
+            return Response({"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            site = ParkingSite.objects.get(pk=site_id)
+        except ParkingSite.DoesNotExist:
+            return Response({"error": "Site not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        # Only owner of this site or admin
+        if request.user.role == "parking_owner" and site.owner != request.user:
+            return Response({"error": "Not your site"}, status=status.HTTP_403_FORBIDDEN)
+
+        normal_count = int(request.data.get("normal", 0))
+        vip_count = int(request.data.get("vip", 0))
+        disabled_count = int(request.data.get("disabled", 0))
+        normal_rate = float(request.data.get("normal_rate", 100))
+        vip_rate = float(request.data.get("vip_rate", 250))
+        disabled_rate = float(request.data.get("disabled_rate", 80))
+
+        total_requested = normal_count + vip_count + disabled_count
+        existing_count = ParkingSlot.objects.filter(parking_site=site).count()
+
+        if total_requested + existing_count > (site.capacity or 9999):
+            return Response({
+                "error": f"Exceeds capacity. Site capacity: {site.capacity}, "
+                         f"existing slots: {existing_count}, requested: {total_requested}"
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # Find the highest existing slot numbers for each type
+        existing_slots = ParkingSlot.objects.filter(parking_site=site)
+        
+        def get_next_number(prefix):
+            """Find highest existing number for a prefix like N-, V-, D-"""
+            max_num = 0
+            for s in existing_slots:
+                sn = s.slot_number
+                if sn.startswith(prefix):
+                    try:
+                        num = int(sn[len(prefix):])
+                        if num > max_num:
+                            max_num = num
+                    except ValueError:
+                        pass
+            return max_num + 1
+
+        slots_to_create = []
+        
+        # Normal slots: N-001, N-002, ...
+        start = get_next_number("N-")
+        for i in range(normal_count):
+            slots_to_create.append(ParkingSlot(
+                parking_site=site,
+                slot_number=f"N-{start + i:03d}",
+                slot_type="normal",
+                is_occupied=False,
+                is_reserved=False,
+                price_per_hour=normal_rate
+            ))
+
+        # VIP slots: V-001, V-002, ...
+        start = get_next_number("V-")
+        for i in range(vip_count):
+            slots_to_create.append(ParkingSlot(
+                parking_site=site,
+                slot_number=f"V-{start + i:03d}",
+                slot_type="vip",
+                is_occupied=False,
+                is_reserved=False,
+                price_per_hour=vip_rate
+            ))
+
+        # Disabled slots: D-001, D-002, ...
+        start = get_next_number("D-")
+        for i in range(disabled_count):
+            slots_to_create.append(ParkingSlot(
+                parking_site=site,
+                slot_number=f"D-{start + i:03d}",
+                slot_type="disabled",
+                is_occupied=False,
+                is_reserved=False,
+                price_per_hour=disabled_rate
+            ))
+
+        created = ParkingSlot.objects.bulk_create(slots_to_create)
+        
+        return Response({
+            "message": f"Successfully generated {len(created)} slots",
+            "created": len(created),
+            "normal": normal_count,
+            "vip": vip_count,
+            "disabled": disabled_count,
+            "total_slots": existing_count + len(created),
+            "capacity": site.capacity
+        }, status=status.HTTP_201_CREATED)
+
+
+class BulkDeleteSlotsView(APIView):
+    """
+    POST /api/parking/sites/<site_id>/slots/bulk-delete/
+    Deletes all unoccupied slots (or specific type if provided).
+    Body (optional): { "type": "normal" }  — delete only normal unoccupied slots
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, site_id):
+        if request.user.role not in ["parking_owner", "admin"]:
+            return Response({"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            site = ParkingSite.objects.get(pk=site_id)
+        except ParkingSite.DoesNotExist:
+            return Response({"error": "Site not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        if request.user.role == "parking_owner" and site.owner != request.user:
+            return Response({"error": "Not your site"}, status=status.HTTP_403_FORBIDDEN)
+
+        slot_type = request.data.get("type", None)
+        qs = ParkingSlot.objects.filter(parking_site=site, is_occupied=False)
+        
+        if slot_type:
+            qs = qs.filter(slot_type=slot_type)
+
+        count = qs.count()
+        qs.delete()
+
+        remaining = ParkingSlot.objects.filter(parking_site=site).count()
+        return Response({
+            "message": f"Deleted {count} unoccupied slots",
+            "deleted": count,
+            "remaining": remaining
+        }, status=status.HTTP_200_OK)
+
+
+class BulkUpdateRateView(APIView):
+    """
+    POST /api/parking/sites/<site_id>/slots/bulk-update-rate/
+    Body: { "type": "vip", "rate": 300 }
+    Updates price_per_hour for all slots of the given type.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, site_id):
+        if request.user.role not in ["parking_owner", "admin"]:
+            return Response({"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            site = ParkingSite.objects.get(pk=site_id)
+        except ParkingSite.DoesNotExist:
+            return Response({"error": "Site not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        if request.user.role == "parking_owner" and site.owner != request.user:
+            return Response({"error": "Not your site"}, status=status.HTTP_403_FORBIDDEN)
+
+        slot_type = request.data.get("type")
+        rate = request.data.get("rate")
+        
+        if not slot_type or rate is None:
+            return Response({"error": "type and rate are required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        updated = ParkingSlot.objects.filter(
+            parking_site=site, slot_type=slot_type
+        ).update(price_per_hour=float(rate))
+
+        return Response({
+            "message": f"Updated rate for {updated} {slot_type} slots to {rate}",
+            "updated": updated
+        }, status=status.HTTP_200_OK)
 
 
 class VehicleView(APIView):
@@ -177,7 +388,7 @@ class VehicleDetailView(APIView):
         return Response({"message": "Vehicle deleted successfully"}, status=status.HTTP_200_OK)
 
 # ─── Admin: System Settings ───────────────────────────────────────────────────
-from accounts.views import IsAdmin
+from accounts.permissions import IsAdmin
 from .models import SystemSettings
 
 class AdminSystemSettingsView(APIView):

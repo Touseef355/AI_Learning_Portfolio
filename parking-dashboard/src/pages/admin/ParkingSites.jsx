@@ -12,7 +12,7 @@ import {
   RefreshCw
 } from 'lucide-react'
 
-import { supabase } from '../../supabase'
+import api from '../../api/axios'
 
 // ─────────────────────────────────────────────
 // Status Badge
@@ -316,12 +316,7 @@ export default function ParkingSites() {
   const fetchSites = async () => {
     setLoading(true)
     try {
-      const { data, error } = await supabase
-        .from('parking_sites')
-        .select('*')
-        .order('created_at', { ascending: false })
-
-      if (error) throw error
+      const { data } = await api.get('/parking/sites/')
       setSites(data || [])
     } catch (error) {
       console.error('Error fetching sites:', error)
@@ -336,33 +331,24 @@ export default function ParkingSites() {
   const handleSave = async (site) => {
     try {
       const sitePayload = {
-        name:           site.name,
-        address:        site.address,
-        total_slots:    site.total_slots,
+        name: site.name,
+        address: site.address,
+        total_slots: site.total_slots,
         price_per_hour: site.price_per_hour,
-        total_floors:   site.total_floors,
-        opening_time:   site.opening_time,
-        closing_time:   site.closing_time,
+        total_floors: site.total_floors,
+        opening_time: site.opening_time,
+        closing_time: site.closing_time,
         contact_number: site.contact_number,
-        email:          site.email,
-        status:         site.status,
+        email: site.email,
+        status: site.status,
       }
 
       if (site.id) {
         // EDIT
-        const { error } = await supabase
-          .from('parking_sites')
-          .update(sitePayload)
-          .eq('id', site.id)
-
-        if (error) throw error
+        await api.put(`/parking/sites/${site.id}/`, sitePayload)
       } else {
         // ADD
-        const { error } = await supabase
-          .from('parking_sites')
-          .insert([sitePayload])
-
-        if (error) throw error
+        await api.post('/parking/sites/', sitePayload)
       }
 
       fetchSites()
@@ -378,12 +364,18 @@ export default function ParkingSites() {
   const handleDelete = async () => {
     if (!deleteSite) return
     try {
-      const { error } = await supabase
-        .from('parking_sites')
-        .delete()
-        .eq('id', deleteSite.id)
+      await api.delete(`/parking/sites/${deleteSite.id}/`)
 
-      if (error) throw error
+      if (deleteSite.email) {
+        try {
+          await api.delete('/auth/admin/owner-cleanup/', {
+            data: { email: deleteSite.email }
+          })
+        } catch (apiErr) {
+          console.error('Owner cleanup error:', apiErr)
+        }
+      }
+
       setDeleteSite(null)
       fetchSites()
     } catch (error) {
@@ -397,12 +389,7 @@ export default function ParkingSites() {
   // ─────────────────────────────────────────
   const updateStatus = async (id, status) => {
     try {
-      const { error } = await supabase
-        .from('parking_sites')
-        .update({ status })
-        .eq('id', id)
-
-      if (error) throw error
+      await api.put(`/parking/sites/${id}/`, { status })
       fetchSites()
     } catch (error) {
       console.error('Status Update Error:', error)
@@ -514,11 +501,10 @@ export default function ParkingSites() {
               <button
                 key={statusTab}
                 onClick={() => setFilterStatus(statusTab)}
-                className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors capitalize ${
-                  filterStatus === statusTab
+                className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors capitalize ${filterStatus === statusTab
                     ? 'bg-primary text-primary-foreground'
                     : 'border border-border text-muted-foreground hover:bg-secondary'
-                }`}
+                  }`}
               >
                 {statusTab}
               </button>

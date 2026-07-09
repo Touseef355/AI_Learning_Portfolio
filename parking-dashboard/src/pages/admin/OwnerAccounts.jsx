@@ -3,7 +3,7 @@ import {
   Users, CheckCircle, XCircle, Eye, Search,
   X, MapPin, UserCheck, TrendingUp,
   Calendar, Phone, Mail, ArrowLeft, Building2,
-  CreditCard, RefreshCw
+  CreditCard, RefreshCw, Trash2
 } from 'lucide-react'
 import api from '../../api/axios'
 
@@ -18,9 +18,9 @@ function fmtDate(str) {
 
 function StatusBadge({ status }) {
   const styles = {
-    active:   'bg-green-100 text-green-700',
-    pending:  'bg-yellow-100 text-yellow-700',
-    blocked:  'bg-red-100 text-red-700',
+    active: 'bg-green-100 text-green-700',
+    pending: 'bg-yellow-100 text-yellow-700',
+    blocked: 'bg-red-100 text-red-700',
     inactive: 'bg-gray-100 text-gray-500',
   }
   return (
@@ -48,28 +48,12 @@ function OwnerDetailPanel({ owner, onClose, onApprove, onBlock, onUnblock, onRej
   const fetchOwnerDetails = async () => {
     setLoading(true)
     try {
-      const mockSites = [
-        {
-          id: 's1',
-          name: 'Parkroo Downtown',
-          address: 'Main Commercial Plaza',
-          city: 'Lahore',
-          total_slots: 120,
-          status: 'active',
-          created_at: new Date().toISOString(),
-          occupied: 45,
-          slots: { normal: 90, vip: 20, disabled: 10 },
-          bookings: 380,
-          revenue: 45000,
-        }
-      ]
-      setSites(mockSites)
-      setCashiers([
-        { id: 'c1', name: 'Ali Raza', site_id: 's1', status: 'active', parking_sites: { name: 'Parkroo Downtown' } }
-      ])
-      setRevenue(45000)
-      setBookingsCount(380)
-      setMonthlyRevenue([5000, 8000, 12000, 15000, 20000, 22000, 25000, 30000, 35000, 38000, 42000, 45000])
+      const res = await api.get(`/auth/admin/owners/${owner.id}/details/`)
+      setSites(res.data.sites || [])
+      setCashiers(res.data.cashiers || [])
+      setRevenue(res.data.revenue || 0)
+      setBookingsCount(res.data.bookingsCount || 0)
+      setMonthlyRevenue(res.data.monthlyRevenue || [])
     } catch (err) {
       console.error('Owner details fetch error:', err)
     } finally {
@@ -77,7 +61,7 @@ function OwnerDetailPanel({ owner, onClose, onApprove, onBlock, onUnblock, onRej
     }
   }
 
-  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
   const maxBar = Math.max(...monthlyRevenue, 1)
 
   return (
@@ -164,10 +148,10 @@ function OwnerDetailPanel({ owner, onClose, onApprove, onBlock, onUnblock, onRej
         <>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {[
-              { label: 'Total Sites',    val: sites.length,                     color: 'text-gray-900' },
-              { label: 'Total Cashiers', val: cashiers.length,                  color: 'text-blue-700' },
-              { label: 'Total Bookings', val: bookingsCount.toLocaleString(),   color: 'text-purple-700' },
-              { label: 'Total Revenue',  val: `Rs. ${revenue.toLocaleString()}`, color: 'text-green-700' },
+              { label: 'Total Sites', val: sites.length, color: 'text-gray-900' },
+              { label: 'Total Cashiers', val: cashiers.length, color: 'text-blue-700' },
+              { label: 'Total Bookings', val: bookingsCount.toLocaleString(), color: 'text-purple-700' },
+              { label: 'Total Revenue', val: `Rs. ${revenue.toLocaleString()}`, color: 'text-green-700' },
             ].map(s => (
               <div key={s.label} className="bg-white rounded-xl border border-gray-200 p-5">
                 <p className="text-xs text-gray-500 uppercase tracking-wide font-medium mb-1">{s.label}</p>
@@ -212,11 +196,10 @@ function OwnerDetailPanel({ owner, onClose, onApprove, onBlock, onUnblock, onRej
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
-                  className={`flex-1 px-6 py-3 text-sm font-medium transition-colors capitalize flex items-center justify-center gap-2 ${
-                    activeTab === tab
+                  className={`flex-1 px-6 py-3 text-sm font-medium transition-colors capitalize flex items-center justify-center gap-2 ${activeTab === tab
                       ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50'
                       : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
-                  }`}
+                    }`}
                 >
                   {tab === 'sites' ? <Building2 className="w-4 h-4" /> : <Users className="w-4 h-4" />}
                   {tab === 'sites' ? `Parking Sites (${sites.length})` : `Cashiers (${cashiers.length})`}
@@ -246,10 +229,10 @@ function OwnerDetailPanel({ owner, onClose, onApprove, onBlock, onUnblock, onRej
 
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
                       {[
-                        { label: 'Capacity',        val: `${site.total_slots || 0} slots` },
-                        { label: 'Currently Active', val: `${site.occupied} vehicles`     },
-                        { label: 'Total Bookings',   val: site.bookings                   },
-                        { label: 'Revenue',          val: `Rs. ${site.revenue.toLocaleString()}`, green: true },
+                        { label: 'Capacity', val: `${site.total_slots || 0} slots` },
+                        { label: 'Currently Active', val: `${site.occupied} vehicles` },
+                        { label: 'Total Bookings', val: site.bookings },
+                        { label: 'Revenue', val: `Rs. ${site.revenue.toLocaleString()}`, green: true },
                       ].map(s => (
                         <div key={s.label} className="bg-gray-50 rounded-lg p-3">
                           <p className="text-xs text-gray-500 mb-0.5">{s.label}</p>
@@ -337,7 +320,8 @@ export default function OwnerAccounts() {
         email: o.email,
         phone: o.phone_number,
         status: o.status,
-        siteCount: o.site_id ? 1 : 0,
+        siteCount: o.siteCount || 0,
+        cashierCount: o.cashierCount || 0,
         created_at: o.created_at,
       }))
       setOwners(mapped)
@@ -406,6 +390,23 @@ export default function OwnerAccounts() {
     }
   }
 
+  const handleDeleteOwner = async (email, id) => {
+    if (!window.confirm("Are you sure you want to permanently delete this owner? This will allow them to register again.")) return
+    setActionLoading(id)
+    try {
+      await api.delete('/auth/admin/owner-cleanup/', {
+        data: { email }
+      })
+      setOwners(prev => prev.filter(o => o.id !== id))
+      if (selectedOwner?.id === id) setSelectedOwner(null)
+    } catch (err) {
+      console.error('Delete owner error:', err)
+      alert('Failed to delete owner')
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
   // ── Filter ───────────────────────────────────────────────────────────────
 
   const filtered = owners.filter(o => {
@@ -417,8 +418,8 @@ export default function OwnerAccounts() {
   })
 
   const counts = {
-    total:   owners.length,
-    active:  owners.filter(o => o.status === 'active').length,
+    total: owners.length,
+    active: owners.filter(o => o.status === 'active').length,
     pending: owners.filter(o => o.status === 'pending').length,
     blocked: owners.filter(o => o.status === 'blocked').length,
   }
@@ -462,10 +463,10 @@ export default function OwnerAccounts() {
       {/* Stat Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {[
-          { label: 'Total Owners', value: counts.total,   iconBg: 'bg-blue-100',   iconColor: 'text-blue-600',   icon: Users },
-          { label: 'Active',       value: counts.active,  iconBg: 'bg-green-100',  iconColor: 'text-green-600',  icon: CheckCircle },
-          { label: 'Pending',      value: counts.pending, iconBg: 'bg-yellow-100', iconColor: 'text-yellow-600', icon: UserCheck },
-          { label: 'Blocked',      value: counts.blocked, iconBg: 'bg-red-100',    iconColor: 'text-red-600',    icon: XCircle },
+          { label: 'Total Owners', value: counts.total, iconBg: 'bg-blue-100', iconColor: 'text-blue-600', icon: Users },
+          { label: 'Active', value: counts.active, iconBg: 'bg-green-100', iconColor: 'text-green-600', icon: CheckCircle },
+          { label: 'Pending', value: counts.pending, iconBg: 'bg-yellow-100', iconColor: 'text-yellow-600', icon: UserCheck },
+          { label: 'Blocked', value: counts.blocked, iconBg: 'bg-red-100', iconColor: 'text-red-600', icon: XCircle },
         ].map(s => {
           const IconComp = s.icon
           return (
@@ -506,11 +507,10 @@ export default function OwnerAccounts() {
               <button
                 key={s}
                 onClick={() => setFilterStatus(s)}
-                className={`text-xs px-3 py-2 rounded-lg font-medium transition-colors capitalize ${
-                  filterStatus === s
+                className={`text-xs px-3 py-2 rounded-lg font-medium transition-colors capitalize ${filterStatus === s
                     ? 'bg-blue-600 text-white'
                     : 'border border-gray-300 text-gray-600 hover:bg-gray-50'
-                }`}
+                  }`}
               >
                 {s}
               </button>
@@ -530,7 +530,7 @@ export default function OwnerAccounts() {
                 <tr>
                   <th className="text-left text-xs font-medium text-gray-500 uppercase px-6 py-3">Owner</th>
                   <th className="text-left text-xs font-medium text-gray-500 uppercase px-6 py-3">Email / Phone</th>
-                  <th className="text-left text-xs font-medium text-gray-500 uppercase px-6 py-3 text-center">Sites</th>
+                  <th className="text-left text-xs font-medium text-gray-500 uppercase px-6 py-3 text-center">Sites & Cashiers</th>
                   <th className="text-left text-xs font-medium text-gray-500 uppercase px-6 py-3">Joined</th>
                   <th className="text-left text-xs font-medium text-gray-500 uppercase px-6 py-3 text-center">Status</th>
                   <th className="text-right text-xs font-medium text-gray-500 uppercase px-6 py-3">Actions</th>
@@ -567,9 +567,12 @@ export default function OwnerAccounts() {
                       <p className="text-xs text-gray-400">{owner.phone || '—'}</p>
                     </td>
 
-                    {/* Sites count */}
+                    {/* Sites & Cashiers count */}
                     <td className="px-6 py-4 text-center">
-                      <span className="text-sm font-semibold text-gray-900">{owner.siteCount}</span>
+                      <div className="flex flex-col items-center justify-center">
+                        <span className="text-sm font-semibold text-gray-900">{owner.siteCount} Sites</span>
+                        <span className="text-xs text-gray-500">{owner.cashierCount} Cashiers</span>
+                      </div>
                     </td>
 
                     {/* Joined date */}
@@ -635,6 +638,15 @@ export default function OwnerAccounts() {
                             {actionLoading === owner.id ? '...' : 'Unblock'}
                           </button>
                         )}
+
+                        {/* Delete */}
+                        <button
+                          onClick={() => handleDeleteOwner(owner.email, owner.id)}
+                          disabled={actionLoading === owner.id}
+                          className="text-xs px-3 py-1.5 border border-red-200 text-red-600 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50 flex items-center gap-1"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" /> {actionLoading === owner.id ? '...' : 'Delete'}
+                        </button>
                       </div>
                     </td>
                   </tr>

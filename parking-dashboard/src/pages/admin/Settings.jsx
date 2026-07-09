@@ -5,14 +5,14 @@ import api from '../../api/axios'
 // ── Section Card ──────────────────────────────────
 function SectionCard({ title, description, icon: Icon, children }) {
   return (
-    <div className="bg-card border border-border rounded-xl p-5 mb-5 hover:shadow-lg transition-all duration-300">
-      <div className="flex items-start gap-3 mb-5 pb-4 border-b border-border">
-        <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
-          <Icon className="w-4 h-4 text-primary" />
+    <div className="bg-white border border-gray-200 rounded-xl p-5 mb-5 hover:shadow-lg transition-all duration-300">
+      <div className="flex items-start gap-3 mb-5 pb-4 border-b border-gray-200">
+        <div className="w-9 h-9 rounded-lg bg-blue-100 flex items-center justify-center flex-shrink-0">
+          <Icon className="w-4 h-4 text-blue-600" />
         </div>
         <div>
-          <p className="text-sm font-semibold text-foreground">{title}</p>
-          <p className="text-xs text-muted-foreground mt-0.5">{description}</p>
+          <p className="text-sm font-semibold text-gray-900">{title}</p>
+          <p className="text-xs text-gray-500 mt-0.5">{description}</p>
         </div>
       </div>
       <div className="space-y-1">
@@ -25,10 +25,10 @@ function SectionCard({ title, description, icon: Icon, children }) {
 // ── Field Row ─────────────────────────────────────
 function FieldRow({ label, hint, children }) {
   return (
-    <div className="flex items-start justify-between py-3 border-b border-border last:border-0 hover:bg-secondary/10 px-2 rounded-lg transition-colors">
+    <div className="flex items-start justify-between py-3 border-b border-gray-200 last:border-0 hover:bg-gray-50 px-2 rounded-lg transition-colors">
       <div className="flex-1 mr-8">
-        <p className="text-sm font-medium text-foreground">{label}</p>
-        {hint && <p className="text-xs text-muted-foreground mt-0.5">{hint}</p>}
+        <p className="text-sm font-medium text-gray-900">{label}</p>
+        {hint && <p className="text-xs text-gray-500 mt-0.5">{hint}</p>}
       </div>
       <div className="flex-shrink-0">{children}</div>
     </div>
@@ -41,7 +41,7 @@ function Toggle({ value, onChange }) {
     <button
       onClick={() => onChange(!value)}
       className={`relative w-11 h-6 rounded-full transition-colors ${
-        value ? 'bg-primary' : 'bg-border'
+        value ? 'bg-blue-600' : 'bg-gray-200'
       }`}
     >
       <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
@@ -60,10 +60,10 @@ function NumberInput({ value, onChange, min = 0, suffix }) {
         min={min}
         value={value}
         onChange={e => onChange(Number(e.target.value))}
-        className="w-20 text-sm border border-border rounded-lg px-3 py-1.5 bg-background text-foreground outline-none focus:border-primary text-center"
+        className="w-20 text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-gray-50 text-gray-900 outline-none focus:border-blue-600 text-center"
       />
       {suffix && (
-        <span className="text-xs text-muted-foreground">{suffix}</span>
+        <span className="text-xs text-gray-500">{suffix}</span>
       )}
     </div>
   )
@@ -187,8 +187,8 @@ export default function AdminSettings() {
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px]">
-        <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
-        <p className="text-muted-foreground mt-4 text-sm animate-pulse">Loading system settings...</p>
+        <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+        <p className="text-gray-500 mt-4 text-sm animate-pulse">Loading system settings...</p>
       </div>
     )
   }
@@ -196,27 +196,27 @@ export default function AdminSettings() {
   return (
     <div className="pb-12">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 border-b border-border pb-5">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 border-b border-gray-200 pb-5">
         <div>
-          <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-            <Settings className="w-6 h-6 text-primary" />
+          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+            <Settings className="w-6 h-6 text-blue-600" />
             System Settings
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">
+          <p className="text-sm text-gray-500 mt-1">
             Configure system-wide parking rules, payment methods, notifications, and security policies.
           </p>
         </div>
         <div className="flex items-center gap-3">
           <button
             onClick={handleReset}
-            className="flex items-center gap-2 text-sm px-4 py-2 border border-border rounded-lg text-muted-foreground hover:bg-secondary transition-colors"
+            className="flex items-center gap-2 text-sm px-4 py-2 border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 transition-colors"
           >
             <RotateCcw className="w-4 h-4" />
             Reset Defaults
           </button>
           <button
             onClick={handleSave}
-            className="flex items-center gap-2 text-sm px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-opacity font-medium shadow-sm"
+            className="flex items-center gap-2 text-sm px-4 py-2 bg-blue-600 text-white rounded-lg hover:opacity-90 transition-opacity font-medium shadow-sm"
           >
             <Save className="w-4 h-4" />
             Save Changes
@@ -424,7 +424,7 @@ export default function AdminSettings() {
 
       {/* Save banner */}
       {saved && (
-        <div className="fixed bottom-6 right-6 bg-primary text-primary-foreground text-sm px-5 py-3 rounded-xl shadow-lg font-medium animate-bounce z-50">
+        <div className="fixed bottom-6 right-6 bg-blue-600 text-white text-sm px-5 py-3 rounded-xl shadow-lg font-medium animate-bounce z-50">
           ✓ System settings saved successfully!
         </div>
       )}

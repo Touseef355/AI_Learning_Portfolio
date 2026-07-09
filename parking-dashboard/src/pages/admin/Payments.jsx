@@ -205,57 +205,42 @@ export default function Payments() {
             </div>
 
             {/* Status filter */}
-            <div className="flex items-center gap-1.5">
-              {['all', 'completed', 'pending', 'failed', 'refunded'].map(s => (
-                <button
-                  key={s}
-                  onClick={() => setFilterStatus(s)}
-                  className={`text-xs px-3 py-2 rounded-lg font-medium transition-colors capitalize ${
-                    filterStatus === s ? 'bg-blue-600 text-white' : 'border border-gray-300 text-gray-600 hover:bg-gray-50'
-                  }`}
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
+            <select
+              value={filterStatus}
+              onChange={e => setFilterStatus(e.target.value)}
+              className="text-sm border border-gray-300 rounded-lg px-3 py-2 text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 capitalize"
+            >
+              <option value="all">Status: All</option>
+              <option value="completed">Completed</option>
+              <option value="pending">Pending</option>
+              <option value="failed">Failed</option>
+              <option value="refunded">Refunded</option>
+            </select>
 
             {/* Method filter */}
-            <div className="flex items-center gap-1.5">
-              {['all', 'cash', 'card', 'easypasisa', 'jazzcash', 'online'].map(m => (
-                <button
-                  key={m}
-                  onClick={() => setFilterMethod(m)}
-                  className={`text-xs px-3 py-2 rounded-lg font-medium transition-colors capitalize ${
-                    filterMethod === m ? 'bg-blue-600 text-white' : 'border border-gray-300 text-gray-600 hover:bg-gray-50'
-                  }`}
-                >
-                  {m === 'all' ? 'All Methods' : m}
-                </button>
-              ))}
-            </div>
+            <select
+              value={filterMethod}
+              onChange={e => setFilterMethod(e.target.value)}
+              className="text-sm border border-gray-300 rounded-lg px-3 py-2 text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 capitalize"
+            >
+              <option value="all">All Methods</option>
+              <option value="cash">Cash</option>
+              <option value="card">Card</option>
+            </select>
           </div>
 
-          {/* Site filter pills */}
+          {/* Site filter */}
           <div className="flex items-center gap-2 flex-wrap">
-            <button
-              onClick={() => setFilterSite('all')}
-              className={`text-xs px-3 py-1.5 rounded-full font-medium transition-colors ${
-                filterSite === 'all' ? 'bg-blue-600 text-white' : 'border border-gray-300 text-gray-600 hover:bg-gray-50'
-              }`}
+            <select
+              value={filterSite}
+              onChange={e => setFilterSite(e.target.value)}
+              className="text-sm border border-gray-300 rounded-lg px-3 py-2 text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
-              All Sites
-            </button>
-            {sites.map(s => (
-              <button
-                key={s.id}
-                onClick={() => setFilterSite(s.name)}
-                className={`text-xs px-3 py-1.5 rounded-full font-medium transition-colors ${
-                  filterSite === s.name ? 'bg-blue-600 text-white' : 'border border-gray-300 text-gray-600 hover:bg-gray-50'
-                }`}
-              >
-                {s.name}
-              </button>
-            ))}
+              <option value="all">All Sites</option>
+              {sites.map(s => (
+                <option key={s.id} value={s.name}>{s.name}</option>
+              ))}
+            </select>
           </div>
         </div>
 

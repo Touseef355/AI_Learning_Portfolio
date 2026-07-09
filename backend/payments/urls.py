@@ -1,32 +1,34 @@
 from django.urls import path
 from .views import (
-    PaymentView,
-    PaymentDetailView,
-    AdminPaymentListView,
-    AdminPaymentRefundView,
-    OwnerPaymentsView,
+    PaymentView, PaymentDetailView,
+    WalletView, WalletTopUpInitView,
+    WalletTopUpCallbackView, MockPaymentConfirmView,
+    WalletDeductView, OwnerWalletView, WithdrawalRequestView,
+    AdminPaymentListView, AdminPaymentRefundView, OwnerPaymentsView,
 )
 
 urlpatterns = [
-    # ── User-facing ────────────────────────────────────────────────────────
-    # GET  /api/payments/          → my payments
-    # POST /api/payments/          → create payment
+    # Payments
     path("", PaymentView.as_view(), name="payment"),
-
-    # GET /api/payments/<uuid>/    → my payment detail
-    # PUT /api/payments/<uuid>/    → refund my payment
     path("<uuid:pk>/", PaymentDetailView.as_view(), name="payment-detail"),
 
-    # ── Admin ──────────────────────────────────────────────────────────────
-    # GET  /api/payments/admin/
-    # GET  /api/payments/admin/?status=success&method=Cash&date_from=2026-05-01
-    # GET  /api/payments/admin/?search=LEF-1234
-    path("admin/", AdminPaymentListView.as_view(), name="admin-payment-list"),
+    # User Wallet
+    path("wallet/", WalletView.as_view(), name="wallet"),
+    path("wallet/topup/initiate/", WalletTopUpInitView.as_view(), name="wallet-topup-init"),
+    path("wallet/topup/callback/", WalletTopUpCallbackView.as_view(), name="wallet-topup-callback"),
+    path("wallet/deduct/", WalletDeductView.as_view(), name="wallet-deduct"),
 
-    # PATCH /api/payments/admin/<uuid>/refund/   body: {"refund_amount": "120.00"}
-    path("admin/<uuid:pk>/refund/", AdminPaymentRefundView.as_view(), name="admin-payment-refund"),
+    # Mock gateway only (harmless if PAYMENT_GATEWAY=simpaisa — just unused)
+    path("mock/confirm/", MockPaymentConfirmView.as_view(), name="mock-confirm"),
 
-    # ── Owner ─────────────────────────────────────────────────────────────
-    # GET  /api/payments/owner/
+    # Owner — wallet/payout
+    path("owner/wallet/", OwnerWalletView.as_view(), name="owner-wallet"),
+    path("owner/withdraw/", WithdrawalRequestView.as_view(), name="owner-withdraw"),
+
+    # Owner — payments list (dashboard)
     path("owner/", OwnerPaymentsView.as_view(), name="owner-payments"),
+
+    # Admin
+    path("admin/", AdminPaymentListView.as_view(), name="admin-payment-list"),
+    path("admin/<uuid:pk>/refund/", AdminPaymentRefundView.as_view(), name="admin-payment-refund"),
 ]

@@ -23,17 +23,24 @@ from django.views.static import serve
 import os
 from pathlib import Path
 
+from payments.views import AppConfigView
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 LANDING_PAGE_DIR = os.path.join(BASE_DIR.parent, 'landing-page')
 
 urlpatterns = [
     path("admin/", admin.site.urls),
-    path("api/auth/", include('accounts.urls')),
+        path("api/auth/", include('accounts.urls')),
     path('api/parking/', include('parking.urls')),
-    path('api/bookings/', include('bookings.urls')),  
+    path('api/bookings/', include('bookings.urls')),
     path('api/payments/', include('payments.urls')),
     path('api/ai/', include('ai_module.urls')),
-    
+
+    # backend_ali wrote this view but never wired it in — parkroo_app
+    # (Flutter) already calls GET /api/config/ on boot and silently falls
+    # back to 'mock' when it 404s.
+    path('api/config/', AppConfigView.as_view(), name='app-config'),
+
     # Serve landing page directly from Django backend
     re_path(r'^landing/(?P<path>.*)$', serve, {'document_root': LANDING_PAGE_DIR}),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

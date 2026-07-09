@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 
 from pathlib import Path
 from datetime import timedelta
+from decimal import Decimal
 from dotenv import load_dotenv
 import os
 load_dotenv()
@@ -29,9 +30,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.getenv("SECRET_KEY")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv("DEBUG", "True").lower() == "true"
 
-ALLOWED_HOSTS = ["127.0.0.1", "localhost", "*"]
+ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "127.0.0.1,localhost").split(",")
 
 
 # Application definition
@@ -48,7 +49,7 @@ INSTALLED_APPS = [
     "parking",
     "payments",
     "ai_module",
-    "bookings",
+    "bookings.apps.BookingsConfig",
     "channels",
     "corsheaders",
     "rest_framework_simplejwt",
@@ -101,14 +102,6 @@ DATABASES = {
         'OPTIONS': {'sslmode': 'require'},
     }
 }
-
-# DATABASES = {
-#     'default': {
-#         'ENGINE': 'django.db.backends.sqlite3',
-#         'NAME': BASE_DIR / 'db.sqlite3',
-#     }
-# }
-
 
 
 # Password validation
@@ -204,12 +197,19 @@ TWILIO_PHONE       = os.getenv("TWILIO_PHONE")
 
 # Email Settings
 
-EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
-EMAIL_HOST = os.getenv("EMAIL_HOST")
-EMAIL_PORT = int(os.getenv("EMAIL_PORT",465))
-EMAIL_USE_TLS = True
-EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER")
-EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
+# Email Settings – Use environment variables for production.
+# For local development, fallback to console backend if SMTP settings are absent.
+EMAIL_BACKEND = os.getenv(
+    "EMAIL_BACKEND",
+    "django.core.mail.backends.console.EmailBackend"
+)
+EMAIL_HOST = os.getenv("EMAIL_HOST", "localhost")
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", 1025))
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "no-reply@smartpark.com")
+EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", str(EMAIL_PORT == 587)).lower() == "true"
+EMAIL_USE_SSL = os.getenv("EMAIL_USE_SSL", str(EMAIL_PORT == 465)).lower() == "true"
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
 
 
 CACHES = {
@@ -228,11 +228,16 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:5500",
     "http://localhost:5501",
     "http://127.0.0.1:5501",
+    "http://127.0.0.1:5502",
+    "http://localhost:5502",
 ]
 
 CORS_ALLOW_CREDENTIALS = True
 
-CORS_ALLOW_ALL_ORIGINS = True
+# NOTE: CORS_ALLOW_ALL_ORIGINS was removed here on purpose — both source
+# backends set it to True, which silently overrides CORS_ALLOWED_ORIGINS
+# above and allows every origin. Add real origins to CORS_ALLOWED_ORIGINS
+# (or CORS_ALLOWED_ORIGINS env var) instead of re-adding this.
 
 CORS_ALLOW_HEADERS = [
     "accept",
@@ -267,3 +272,22 @@ CHANNEL_LAYERS = {
         },
     },
 }
+
+# Payment gateway — ported from backend_ali (backend_friend had no gateway
+# abstraction, only simulated instant-success payments).
+# Gateway switch — change to 'simpaisa' when ready for production
+PAYMENT_GATEWAY = os.getenv("PAYMENT_GATEWAY", "mock")
+
+# Public backend URL, used to build gateway callback/webhook URLs.
+# backend_ali had this hardcoded to a personal ngrok tunnel; it must come
+# from the environment so it can point at whatever host is actually deployed.
+BACKEND_URL = os.getenv("BACKEND_URL", "http://127.0.0.1:8000")
+
+# Simpaisa credentials — leave empty in .env until issued by Simpaisa
+SIMPAISA_API_KEY = os.getenv("SIMPAISA_API_KEY", "")
+SIMPAISA_SECRET_KEY = os.getenv("SIMPAISA_SECRET_KEY", "")
+SIMPAISA_MERCHANT_ID = os.getenv("SIMPAISA_MERCHANT_ID", "")
+SIMPAISA_BASE_URL = os.getenv("SIMPAISA_BASE_URL", "https://sandbox.simpaisa.com/api/v1")
+
+# Platform commission taken from each wallet-paid booking (10%)
+PLATFORM_COMMISSION = Decimal(os.getenv("PLATFORM_COMMISSION", "0.10"))

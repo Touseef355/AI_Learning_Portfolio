@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation, Outlet } from 'react-router-dom'
 import {
   LayoutDashboard, MapPin, Users, User, CreditCard,
   FileText, Shield, Settings, LogOut, Menu, X, Bot, RotateCcw, Brain,
@@ -8,7 +8,7 @@ import {
 import { logout, getUser } from '../utils/auth'
 import { useNotifications } from '../utils/NotificationContext'
 
-export default function AdminLayout({ children }) {
+export default function AdminLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const location = useLocation()
   const { name, initials } = getUser()
@@ -138,7 +138,7 @@ export default function AdminLayout({ children }) {
       {/* Main Content */}
       <main className="flex-1 overflow-y-auto">
         <div className="p-6">
-          {children}
+          <Outlet />
         </div>
       </main>
 

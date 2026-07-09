@@ -58,8 +58,16 @@ export default function Queries() {
       const response = await API.get('auth/admin/registration-queries/')
       const data = response.data
 
-      const newOwnerRequests = data.filter(q => q.query_type === 'owner_registration')
-      const newQueries = data.filter(q => q.query_type === 'general_support')
+      const now = new Date()
+      const validData = data.filter(q => {
+        const isPendingOrApproved = q.status === 'PENDING' || q.status === 'APPROVED'
+        const isOlderThan24h = (now - new Date(q.created_at)) > 24 * 60 * 60 * 1000
+        if (isPendingOrApproved && isOlderThan24h) return false
+        return true
+      })
+
+      const newOwnerRequests = validData.filter(q => q.query_type === 'owner_registration')
+      const newQueries = validData.filter(q => q.query_type === 'general_support')
 
       if (silent) {
         const totalNow = data.filter(q => q.status === 'PENDING').length

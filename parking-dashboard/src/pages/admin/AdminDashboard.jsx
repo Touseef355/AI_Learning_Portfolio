@@ -79,8 +79,7 @@ function RangeToggle({ value, onChange }) {
         <button
           key={r}
           onClick={() => onChange(r)}
-          className={`text-xs px-3 py-1.5 rounded-md font-medium transition-colors ${
-            value === r
+          className={`text-xs px-3 py-1.5 rounded-md font-medium transition-colors ${value === r
               ? 'bg-white text-gray-900 shadow-sm'
               : 'text-gray-500 hover:text-gray-700'
           }`}
@@ -175,6 +174,39 @@ export default function AdminDashboard() {
     document.body.removeChild(link)
   }
 
+  // Fetch peak hours independently — does not depend on stats API
+  useEffect(() => {
+    const fetchPeakHours = async () => {
+      try {
+        const peakRes = await api.get('/ai/peak-hours/?site_id=site_A')
+        const predictions = peakRes.data.predictions || []
+
+        const HOUR_LABELS = [
+          '12am', '1am', '2am', '3am', '4am', '5am', '6am', '7am',
+          '8am', '9am', '10am', '11am', '12pm', '1pm', '2pm', '3pm',
+          '4pm', '5pm', '6pm', '7pm', '8pm', '9pm', '10pm', '11pm'
+        ]
+        const labelToOcc = { busy: 90, moderate: 55, quiet: 15 }
+
+        const formatted = predictions
+          .filter(p => p.hour >= 6 && p.hour <= 22)
+          .map(p => ({
+            hour: HOUR_LABELS[p.hour],
+            occ: labelToOcc[p.label] ?? 15,
+            label: p.label,
+          }))
+
+        setPeakHours(formatted)
+      } catch (err) {
+        console.warn('Peak hours API failed:', err)
+        setPeakHours([])
+      } finally {
+        setPeakLoading(false)
+      }
+    }
+    fetchPeakHours()
+  }, [])
+
   // ── Stats Fetch from Django API ──
   useEffect(() => {
     const fetchStats = async () => {
@@ -219,36 +251,41 @@ export default function AdminDashboard() {
         }
         setOwnersLoading(false)
 
-        setSlotData([
-          {
-            site: 'Main Site',
-            total: data.slots?.total || 100,
-            occ: data.slots?.occupied || 0,
-            pct: data.slots?.total > 0 ? Math.round((data.slots.occupied / data.slots.total) * 100) : 0
-          }
-        ])
+        setSlotData(data.slot_data || [])
         setSlotLoading(false)
 
-        setAiAccuracy([
-          { day: 'Mon', LPD: 96.5, OCR: 94.2 },
-          { day: 'Tue', LPD: 97.2, OCR: 95.0 },
-          { day: 'Wed', LPD: 95.8, OCR: 93.8 },
-          { day: 'Thu', LPD: 98.0, OCR: 96.2 },
-          { day: 'Fri', LPD: 97.5, OCR: 95.5 },
-          { day: 'Sat', LPD: 96.0, OCR: 94.0 },
-          { day: 'Sun', LPD: data.system?.ai_accuracy || 95.0, OCR: data.system?.ai_accuracy || 95.0 },
-        ])
+        setAiAccuracy(data.ai_accuracy_data || [])
         setAiLoading(false)
 
-        setPeakHours([
-          { hour: '8am', occ: 30 },
-          { hour: '10am', occ: 65 },
-          { hour: '12pm', occ: 85 },
-          { hour: '2pm', occ: 70 },
-          { hour: '4pm', occ: 90 },
-          { hour: '6pm', occ: 45 },
-          { hour: '8pm', occ: 20 },
-        ])
+        // Fetch real peak hour predictions from ML model API
+        try {
+          const peakRes = await api.get('/ai/peak-hours/?site_id=site_A')
+          const predictions = peakRes.data.predictions || []
+
+          const HOUR_LABELS = [
+            '12am', '1am', '2am', '3am', '4am', '5am', '6am', '7am',
+            '8am', '9am', '10am', '11am', '12pm', '1pm', '2pm', '3pm',
+            '4pm', '5pm', '6pm', '7pm', '8pm', '9pm', '10pm', '11pm'
+          ]
+
+          // Convert ML label to occupancy percentage for bar chart display
+          const labelToOcc = { busy: 90, moderate: 55, quiet: 15 }
+
+          // Only show operating hours 6am to 10pm
+          const formatted = predictions
+            .filter(p => p.hour >= 6 && p.hour <= 22)
+            .map(p => ({
+              hour: HOUR_LABELS[p.hour],
+              occ: labelToOcc[p.label] ?? 15,
+              label: p.label,
+            }))
+
+          setPeakHours(formatted)
+        } catch (peakErr) {
+          // If ML API unavailable, show empty state gracefully
+          console.warn('Peak hour prediction API unavailable:', peakErr)
+          setPeakHours([])
+        }
         setPeakLoading(false)
 
         setUserGrowth([
@@ -259,27 +296,22 @@ export default function AdminDashboard() {
         ])
         setUserGrowthLoading(false)
 
-        setActivities([
-          { id: '1', dotClass: 'bg-blue-500', plate: 'LED-1234', site: 'Main Site', msg: 'Vehicle entered', time: '5m ago' },
-          { id: '2', dotClass: 'bg-green-500', plate: 'MNS-8899', site: 'Main Site', msg: 'Vehicle exited', time: '12m ago' },
-          { id: '3', dotClass: 'bg-red-500', plate: 'LHR-7722', site: 'Main Site', msg: 'Dispute raised', time: '1h ago' }
-        ])
+        setActivities(data.live_activities || [])
 
-        // Revenue Data
-        const todayVal = parseFloat(data.revenue?.today || 0) || 12000
-        setRevenueData([
-          { label: 'Mon', Cash: todayVal * 0.4, Card: todayVal * 0.4, Wallet: todayVal * 0.2 },
-          { label: 'Tue', Cash: todayVal * 0.42, Card: todayVal * 0.38, Wallet: todayVal * 0.2 },
-          { label: 'Wed', Cash: todayVal * 0.45, Card: todayVal * 0.35, Wallet: todayVal * 0.2 },
-          { label: 'Thu', Cash: todayVal * 0.38, Card: todayVal * 0.42, Wallet: todayVal * 0.2 },
-          { label: 'Fri', Cash: todayVal * 0.4, Card: todayVal * 0.45, Wallet: todayVal * 0.15 },
-          { label: 'Sat', Cash: todayVal * 0.45, Card: todayVal * 0.4, Wallet: todayVal * 0.15 },
-          { label: 'Sun', Cash: todayVal * 0.4, Card: todayVal * 0.4, Wallet: todayVal * 0.2 },
-        ])
+        setRevenueData(data.revenue_data || [])
         setRevenueLoading(false)
 
       } catch (err) {
         console.error('Stats fetch error:', err)
+        // Make sure all loading states are turned off even on error
+        setKpiLoading(false)
+        setTxLoading(false)
+        setOwnersLoading(false)
+        setSlotLoading(false)
+        setAiLoading(false)
+        setPeakLoading(false)
+        setRevenueLoading(false)
+        setUserGrowthLoading(false)
       }
     }
     fetchStats()
@@ -464,9 +496,9 @@ export default function AdminDashboard() {
                 {/* Payment method breakdown pills */}
                 <div className="grid grid-cols-3 gap-4 pt-4 border-t border-gray-100">
                   {[
-                    { label: 'Cash',   val: lastEntry.Cash,   pct: cashPct,   color: 'text-gray-800',   bg: 'bg-gray-50',    bar: 'bg-gray-700' },
-                    { label: 'Card',   val: lastEntry.Card,   pct: cardPct,   color: 'text-violet-700', bg: 'bg-violet-50',  bar: 'bg-violet-500' },
-                    { label: 'Wallet', val: lastEntry.Wallet, pct: walletPct, color: 'text-blue-700',   bg: 'bg-blue-50',    bar: 'bg-blue-500' },
+                    { label: 'Cash', val: lastEntry.Cash, pct: cashPct, color: 'text-gray-800', bg: 'bg-gray-50', bar: 'bg-gray-700' },
+                    { label: 'Card', val: lastEntry.Card, pct: cardPct, color: 'text-violet-700', bg: 'bg-violet-50', bar: 'bg-violet-500' },
+                    { label: 'Wallet', val: lastEntry.Wallet, pct: walletPct, color: 'text-blue-700', bg: 'bg-blue-50', bar: 'bg-blue-500' },
                   ].map(m => (
                     <div key={m.label} className={`${m.bg} rounded-lg p-3`}>
                       <p className={`text-lg font-bold ${m.color}`}>{m.pct}%</p>
@@ -553,21 +585,18 @@ export default function AdminDashboard() {
                   <div className="flex items-center gap-3">
                     <div className="flex-1 bg-gray-100 rounded-full h-2.5">
                       <div
-                        className={`h-2.5 rounded-full transition-all duration-700 ${
-                          s.pct > 85 ? 'bg-red-500' : s.pct > 60 ? 'bg-yellow-400' : 'bg-green-500'
+                        className={`h-2.5 rounded-full transition-all duration-700 ${s.pct > 85 ? 'bg-red-500' : s.pct > 60 ? 'bg-yellow-400' : 'bg-green-500'
                         }`}
                         style={{ width: `${s.pct}%` }}
                       />
                     </div>
-                    <span className={`text-sm font-semibold w-10 text-right ${
-                      s.pct > 85 ? 'text-red-600' : s.pct > 60 ? 'text-yellow-600' : 'text-green-600'
+                    <span className={`text-sm font-semibold w-10 text-right ${s.pct > 85 ? 'text-red-600' : s.pct > 60 ? 'text-yellow-600' : 'text-green-600'
                     }`}>
                       {s.pct}%
                     </span>
                   </div>
                 </div>
-                <span className={`text-xs px-2 py-1 rounded-full flex-shrink-0 ${
-                  s.pct > 85
+                <span className={`text-xs px-2 py-1 rounded-full flex-shrink-0 ${s.pct > 85
                     ? 'bg-red-100 text-red-700'
                     : s.pct > 60
                     ? 'bg-yellow-100 text-yellow-700'
@@ -583,9 +612,9 @@ export default function AdminDashboard() {
         {/* Summary pills */}
         <div className="grid grid-cols-3 gap-4 mt-6 pt-6 border-t border-gray-100">
           {[
-            { label: 'Total Capacity', val: kpi.totalCapacity,                       bg: 'bg-gray-50',    color: 'text-gray-900' },
-            { label: 'Occupied Slots', val: kpi.activeVehicles,                      bg: 'bg-orange-50',  color: 'text-orange-700' },
-            { label: 'Available Slots', val: kpi.totalCapacity - kpi.activeVehicles, bg: 'bg-green-50',   color: 'text-green-700' },
+            { label: 'Total Capacity', val: kpi.totalCapacity, bg: 'bg-gray-50', color: 'text-gray-900' },
+            { label: 'Occupied Slots', val: kpi.activeVehicles, bg: 'bg-orange-50', color: 'text-orange-700' },
+            { label: 'Available Slots', val: kpi.totalCapacity - kpi.activeVehicles, bg: 'bg-green-50', color: 'text-green-700' },
           ].map(s => (
             <div key={s.label} className={`${s.bg} rounded-lg p-4`}>
               <p className={`text-2xl font-bold ${s.color}`}>{s.val}</p>
@@ -631,9 +660,9 @@ export default function AdminDashboard() {
               {/* Legend */}
               <div className="flex gap-4 mt-4 pt-4 border-t border-gray-100">
                 {[
-                  { label: 'Peak (>85%)',   color: 'bg-red-500',    text: 'text-red-700',    bg: 'bg-red-50' },
+                  { label: 'Peak (>85%)', color: 'bg-red-500', text: 'text-red-700', bg: 'bg-red-50' },
                   { label: 'High (70–85%)', color: 'bg-yellow-400', text: 'text-yellow-700', bg: 'bg-yellow-50' },
-                  { label: 'Normal (<70%)', color: 'bg-green-500',  text: 'text-green-700',  bg: 'bg-green-50' },
+                  { label: 'Normal (<70%)', color: 'bg-green-500', text: 'text-green-700', bg: 'bg-green-50' },
                 ].map(m => (
                   <span key={m.label} className={`flex items-center gap-1.5 text-xs ${m.text} ${m.bg} px-2.5 py-1 rounded-full`}>
                     <span className={`w-2 h-2 rounded-full ${m.color}`} />
@@ -883,8 +912,7 @@ export default function AdminDashboard() {
                     <td className="px-6 py-4 text-sm font-mono font-semibold text-gray-900">{tx.plate}</td>
                     <td className="px-6 py-4 text-sm text-gray-600">{tx.site}</td>
                     <td className="px-6 py-4">
-                      <span className={`px-2 py-1 text-xs rounded-full font-medium ${
-                        tx.method === 'Cash'
+                      <span className={`px-2 py-1 text-xs rounded-full font-medium ${tx.method === 'Cash'
                           ? 'bg-green-100 text-green-700'
                           : tx.method === 'Card'
                           ? 'bg-violet-100 text-violet-700'
@@ -895,8 +923,7 @@ export default function AdminDashboard() {
                     </td>
                     <td className="px-6 py-4 text-sm font-semibold text-gray-900">Rs. {tx.amount.toLocaleString()}</td>
                     <td className="px-6 py-4">
-                      <span className={`px-2 py-1 text-xs rounded-full ${
-                        tx.status === 'Paid'
+                      <span className={`px-2 py-1 text-xs rounded-full ${tx.status === 'Paid'
                           ? 'bg-green-100 text-green-700'
                           : 'bg-red-100 text-red-700'
                       }`}>
@@ -926,21 +953,21 @@ export default function AdminDashboard() {
       >
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {[
-            { label: 'AI Detection',     val: `${kpi.ldpAccuracy}% acc.`,           status: kpi.ldpAccuracy > 80 ? 'good' : 'warning', icon: Bot },
-            { label: 'Overstay Alerts',  val: `${kpi.openDisputes} active`,          status: kpi.openDisputes > 0 ? 'warning' : 'good',  icon: AlertTriangle },
-            { label: 'Manual Overrides', val: `${kpi.manualOverrides} today`,        status: 'info',    icon: Clock },
-            { label: 'Sites Online',     val: `${kpi.activeSites} online`,           status: 'good',    icon: MapPin },
-            { label: 'Open Disputes',    val: `${kpi.openDisputes} pending`,         status: kpi.openDisputes > 0 ? 'danger' : 'good',   icon: MessageSquareWarning },
-            { label: 'Registered Users', val: kpi.registeredUsers.toLocaleString(),  status: 'good',    icon: Users },
-            { label: 'System Security',  val: 'All good',                            status: 'good',    icon: ShieldCheck },
-            { label: 'Pending Owners',   val: `${owners.length} requests`,           status: owners.length > 0 ? 'warning' : 'good', icon: UserCheck },
+            { label: 'AI Detection', val: `${kpi.ldpAccuracy}% acc.`, status: kpi.ldpAccuracy > 80 ? 'good' : 'warning', icon: Bot },
+            { label: 'Overstay Alerts', val: `${kpi.openDisputes} active`, status: kpi.openDisputes > 0 ? 'warning' : 'good', icon: AlertTriangle },
+            { label: 'Manual Overrides', val: `${kpi.manualOverrides} today`, status: 'info', icon: Clock },
+            { label: 'Sites Online', val: `${kpi.activeSites} online`, status: 'good', icon: MapPin },
+            { label: 'Open Disputes', val: `${kpi.openDisputes} pending`, status: kpi.openDisputes > 0 ? 'danger' : 'good', icon: MessageSquareWarning },
+            { label: 'Registered Users', val: kpi.registeredUsers.toLocaleString(), status: 'good', icon: Users },
+            { label: 'System Security', val: 'All good', status: 'good', icon: ShieldCheck },
+            { label: 'Pending Owners', val: `${owners.length} requests`, status: owners.length > 0 ? 'warning' : 'good', icon: UserCheck },
           ].map((s, i) => {
             const IconComp = s.icon
             const statusConfig = {
-              good:    { iconBg: 'bg-green-100',  iconColor: 'text-green-600',  valColor: 'text-green-700' },
+              good: { iconBg: 'bg-green-100', iconColor: 'text-green-600', valColor: 'text-green-700' },
               warning: { iconBg: 'bg-yellow-100', iconColor: 'text-yellow-600', valColor: 'text-yellow-700' },
-              danger:  { iconBg: 'bg-red-100',    iconColor: 'text-red-600',    valColor: 'text-red-700' },
-              info:    { iconBg: 'bg-blue-100',   iconColor: 'text-blue-600',   valColor: 'text-blue-700' },
+              danger: { iconBg: 'bg-red-100', iconColor: 'text-red-600', valColor: 'text-red-700' },
+              info: { iconBg: 'bg-blue-100', iconColor: 'text-blue-600', valColor: 'text-blue-700' },
             }
             const sc = statusConfig[s.status]
             return (

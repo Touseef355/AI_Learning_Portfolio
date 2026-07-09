@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { BarChart2, Download, FileText, TrendingUp, Car, CreditCard, Calendar, RefreshCw } from 'lucide-react'
-import { supabase } from '../../supabase'
+import api from '../../api/axios'
 import * as XLSX from 'xlsx'
 
 function fmtDate(str) {
@@ -28,24 +28,24 @@ export default function Reports() {
     try {
       const from = getDateFrom(range)
 
-      let payQ = supabase.from('payments').select('id, amount, status, created_at, site_id, parking_sites(name, id)')
-      let bkQ  = supabase.from('bookings').select('id, status, created_at, site_id')
-      let stQ  = supabase.from('parking_sites').select('id, name')
-
-      if (from) {
-        payQ = payQ.gte('created_at', from)
-        bkQ  = bkQ.gte('created_at', from)
-      }
-
       const [payRes, bkRes, stRes] = await Promise.all([
-        payQ.order('created_at', { ascending: false }),
-        bkQ.order('created_at', { ascending: false }),
-        stQ,
+        api.get('/payments/admin/'),
+        api.get('/bookings/admin/'),
+        api.get('/parking/sites/'),
       ])
 
-      setPayments(payRes.data || [])
-      setBookings(bkRes.data || [])
-      setSites(stRes.data || [])
+      let paymentsData = payRes.data || []
+      let bookingsData = bkRes.data || []
+      let sitesData = stRes.data || []
+
+      if (from) {
+        paymentsData = paymentsData.filter(p => new Date(p.created_at || p.paid_at) >= new Date(from))
+        bookingsData = bookingsData.filter(b => new Date(b.created_at) >= new Date(from))
+      }
+
+      setPayments(paymentsData)
+      setBookings(bookingsData)
+      setSites(sitesData)
     } catch (err) {
       console.error('Reports fetch error:', err)
     } finally {
@@ -62,9 +62,9 @@ export default function Reports() {
 
   // Revenue + bookings by site
   const bySite = sites.map(site => {
-    const sitePayments  = completed.filter(p => p.site_id === site.id || p.parking_sites?.id === site.id)
-    const siteBookings  = bookings.filter(b  => b.site_id === site.id)
-    const siteRevenue   = sitePayments.reduce((s, p) => s + (p.amount || 0), 0)
+    const sitePayments  = completed.filter(p => p.site === site.name || (p.parking_sites && p.parking_sites.id === site.id))
+    const siteBookings  = bookings.filter(b  => b.site_name === site.name || (b.parking_slot && b.parking_slot.parking_site === site.id))
+    const siteRevenue   = sitePayments.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
     return { id: site.id, name: site.name, revenue: siteRevenue, bookings: siteBookings.length }
   }).sort((a, b) => b.revenue - a.revenue)
 

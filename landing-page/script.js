@@ -306,6 +306,13 @@ function selectRole(role) {
     const roleSubtitle = document.getElementById('roleSubtitle');
     if (roleSubtitle) roleSubtitle.textContent = cfg.subtitle;
 
+    const cashierTypeGroup = document.getElementById('cashierTypeGroup');
+    if (cashierTypeGroup) {
+        cashierTypeGroup.style.display = role === 'cashier' ? 'block' : 'none';
+        const cashierTypeInput = document.getElementById('cashierTypeInput');
+        if (cashierTypeInput) cashierTypeInput.value = '';
+    }
+
     showStep('login');
     setTimeout(() => {
         const emailInput = document.getElementById('emailInput');
@@ -317,6 +324,8 @@ function goBack() {
     showStep('role');
     selectedRole = null;
     hideError();
+    const cashierTypeGroup = document.getElementById('cashierTypeGroup');
+    if (cashierTypeGroup) cashierTypeGroup.style.display = 'none';
 }
 
 function togglePassword() {
@@ -398,8 +407,15 @@ async function handleLogin(e) {
         if (selectedRole === 'owner' && returnedRole !== 'parking_owner') {
             throw new Error('This account does not have Parking Owner access.');
         }
-        if (selectedRole === 'cashier' && !['cashier', 'entry_cashier', 'exit_cashier'].includes(returnedRole)) {
-            throw new Error('This account does not have Cashier access.');
+        if (selectedRole === 'cashier') {
+            const cashierType = document.getElementById('cashierTypeInput').value;
+            if (!cashierType) {
+                throw new Error('Please select your Cashier Type.');
+            }
+            if (returnedRole !== cashierType) {
+                const requestedRoleLabel = cashierType === 'entry_cashier' ? 'Entry Gate Cashier' : 'Exit Gate Cashier';
+                throw new Error(`This account does not have access as ${requestedRoleLabel}.`);
+            }
         }
 
         // Store tokens and user info in localStorage
@@ -418,7 +434,11 @@ async function handleLogin(e) {
             redirectUrl = `${DASHBOARD_BASE}/admin/dashboard`;
         } else if (returnedRole === 'parking_owner') {
             redirectUrl = `${DASHBOARD_BASE}/owner/dashboard`;
-        } else if (['cashier', 'entry_cashier', 'exit_cashier'].includes(returnedRole)) {
+        } else if (returnedRole === 'entry_cashier') {
+            redirectUrl = `${DASHBOARD_BASE}/cashier/entry`;
+        } else if (returnedRole === 'exit_cashier') {
+            redirectUrl = `${DASHBOARD_BASE}/cashier/exit`;
+        } else if (returnedRole === 'cashier') {
             redirectUrl = `${DASHBOARD_BASE}/cashier/dashboard`;
         } else {
             redirectUrl = `${DASHBOARD_BASE}/`;
@@ -501,6 +521,10 @@ window.closeSuccessModal = function(e, force = false) {
         document.body.style.overflow = '';
     }
 };
+
+function handleSuccessDone(e) {
+    window.location.href = `${API_BASE}/landing/index.html`;
+}
 
 function showSuccessModal(message) {
     const modal = document.getElementById('successModal');
@@ -770,6 +794,12 @@ function closeCredentialsModal() {
     }
 }
 
+function handleCredentialsDone(e) {
+    if (e && e.stopPropagation) e.stopPropagation();
+    closeCredentialsModal();
+    window.location.href = `${API_BASE}/landing/index.html`;
+}
+
 async function copyCredentials() {
     const textToCopy = `Email: ${generatedEmail}\nPassword: ${generatedPassword}`;
     try {
@@ -830,3 +860,5 @@ async function handleDirectLogin() {
 window.closeCredentialsModal = closeCredentialsModal;
 window.copyCredentials = copyCredentials;
 window.handleDirectLogin = handleDirectLogin;
+window.handleCredentialsDone = handleCredentialsDone;
+window.handleSuccessDone = handleSuccessDone;

@@ -487,6 +487,19 @@
                 </div>
                 <form class="login-form" onsubmit="handleLogin(event)">
 
+                    <!-- Cashier Type — sirf cashier role select karne ke baad dikhe ga -->
+                    <div class="form-group" id="cashierTypeGroup" style="display:none; margin-bottom: 20px;">
+                        <label>Cashier Type *</label>
+                        <div class="input-wrap select-wrap" style="position: relative;">
+                            <i class="fas fa-id-badge" style="position: absolute; left: 15px; top: 50%; transform: translateY(-50%); color: rgba(255, 255, 255, 0.4);"></i>
+                            <select id="cashierTypeInput" style="width: 100%; padding: 12px 15px 12px 42px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: #fff; font-family: inherit; font-size: 14px; outline: none; appearance: none; -webkit-appearance: none; cursor: pointer;">
+                                <option value="" style="background: #121224; color: #aaa;">-- Select your role --</option>
+                                <option value="entry_cashier" style="background: #121224; color: #fff;">Entry Gate Cashier</option>
+                                <option value="exit_cashier" style="background: #121224; color: #fff;">Exit Gate Cashier</option>
+                            </select>
+                            <i class="fas fa-chevron-down" style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); color: rgba(255, 255, 255, 0.4); pointer-events: none;"></i>
+                        </div>
+                    </div>
 
                     <div class="form-group">
                         <label>Email Address</label>
@@ -528,7 +541,7 @@
             </div>
             <h2 style="color: #fff; margin-bottom: 10px;">Success!</h2>
             <p id="successModalMsg" style="color: #ccc; margin-bottom: 25px;"></p>
-            <button class="btn-primary" onclick="closeSuccessModal(event, true)">Okay</button>
+            <button class="btn-primary" onclick="handleSuccessDone(event)">Okay</button>
         </div>
     </div>
     <!-- ═══════════ End Success Modal ═══════════ -->
@@ -566,6 +579,11 @@
                 </button>
             </div>
             
+            <div style="margin-top: 16px; text-align: center;">
+                <button class="btn-primary" onclick="handleCredentialsDone(event)" style="cursor: pointer; padding: 12px 40px; font-size: 15px;">
+                    <i class="fas fa-check"></i> <span>Done</span>
+                </button>
+            </div>
             <button class="modal-close" onclick="closeCredentialsModal()">
                 <i class="fas fa-times"></i>
             </button>

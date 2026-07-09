@@ -18,6 +18,8 @@ from .views import (
     AdminApproveOwnerView,
     AdminDashboardStatsView,
     AdminSystemLogsView,
+    AdminOwnerDetailView,
+    AdminOwnerCleanupView,
     OwnerDashboardStatsView,
     OwnerCashierView,
     OwnerCashierDetailView,
@@ -42,7 +44,10 @@ urlpatterns = [
     path("password/reset/", PasswordResetRequestView.as_view(), name="password-reset"),
     path("password/verify/", PasswordResetVerifyView.as_view(), name="password-verify"),
     path("password/confirm/", PasswordResetConfirmView.as_view(), name="password-confirm"),
+    # Two paths, one view: parking-dashboard calls change-password/,
+    # parkroo_app (Flutter) calls password/change/ — keep both working.
     path("change-password/", ChangePasswordView.as_view(), name="change-password"),
+    path("password/change/", ChangePasswordView.as_view(), name="password-change"),
 
     # ── Public: Landing page query submission ──────────────────────────────
     path("registration-query/", SubmitRegistrationQueryView.as_view(), name="registration-query"),
@@ -51,6 +56,8 @@ urlpatterns = [
     path("admin/users/", AdminUserListView.as_view(), name="admin-user-list"),
     path("admin/users/<uuid:pk>/toggle/", AdminToggleUserStatusView.as_view(), name="admin-toggle-user"),
     path("admin/owners/<uuid:pk>/approve/", AdminApproveOwnerView.as_view(), name="admin-approve-owner"),
+    path("admin/owners/<uuid:pk>/details/", AdminOwnerDetailView.as_view(), name="admin-owner-details"),
+    path("admin/owner-cleanup/", AdminOwnerCleanupView.as_view(), name="admin-owner-cleanup"),
     path("admin/stats/", AdminDashboardStatsView.as_view(), name="admin-dashboard-stats"),
     path("admin/logs/", AdminSystemLogsView.as_view(), name="admin-system-logs"),
 

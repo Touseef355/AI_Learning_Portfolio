@@ -7,7 +7,7 @@ from django.conf import settings
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from rest_framework.permissions import AllowAny, IsAuthenticated, BasePermission
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import authenticate, get_user_model
 from django.core.mail import send_mail
@@ -16,6 +16,7 @@ from django.db import transaction
 from django.utils import timezone
 from django.db.models import Sum
 from .serializers import RegisterSerializer
+from .permissions import IsAdmin, IsOwner
 
 User = get_user_model()
 
@@ -61,14 +62,20 @@ class LoginView(APIView):
         if user.site:
             site_id = str(user.site.id)
 
+        # id/user_id are the same value under both keys: parkroo_app (Flutter)
+        # reads "id"/"email"/"phone_number" to populate its session cache
+        # without a follow-up profile call; parking-dashboard reads "user_id".
         return Response(
             {
                 "message": "Login Successful",
                 "tokens": token,
                 "role": user.role,
                 "name": user.full_name,
-                "site_id": site_id,
+                "email": user.email,
+                "phone_number": user.phone_number,
+                "id": str(user.id),
                 "user_id": str(user.id),
+                "site_id": site_id,
             },
             status=status.HTTP_200_OK
         )
@@ -111,8 +118,8 @@ class ChangePasswordView(APIView):
         if new_password != confirm_password:
             return Response({"error": "New passwords do not match"}, status=status.HTTP_400_BAD_REQUEST)
 
-        if len(new_password) < 6:
-            return Response({"error": "Password must be at least 6 characters"}, status=status.HTTP_400_BAD_REQUEST)
+        if len(new_password) < 8:
+            return Response({"error": "Password must be at least 8 characters"}, status=status.HTTP_400_BAD_REQUEST)
 
         user.set_password(new_password)
         user.save()
@@ -122,9 +129,8 @@ class ChangePasswordView(APIView):
 class ProfileView(APIView):
     permission_classes = [IsAuthenticated]
 
-    def get(self, request):
-        user = request.user
-        return Response({
+    def _user_data(self, user, request):
+        return {
             "id": str(user.id),
             "email": user.email,
             "full_name": user.full_name,
@@ -132,8 +138,21 @@ class ProfileView(APIView):
             "role": user.role,
             "address": user.address,
             "profile_photo": request.build_absolute_uri(user.profile_photo.url) if user.profile_photo else None,
-            "created_at": user.created_at
-        }, status=status.HTTP_200_OK)
+            "created_at": user.created_at,
+            "vehicles": [
+                {
+                    "id": str(v.id),
+                    "vehicle_name": v.name,
+                    "plate_number": v.plate_number,
+                    "vehicle_type": v.vehicle_type,
+                    "color": v.color,
+                }
+                for v in user.vehicles.all()
+            ],
+        }
+
+    def get(self, request):
+        return Response(self._user_data(request.user, request), status=status.HTTP_200_OK)
 
     def put(self, request):
         user = request.user
@@ -157,10 +176,13 @@ class ProfileView(APIView):
 
         user.save()
 
-        return Response({
-            "message": "Profile updated successfully",
-            "profile_photo": request.build_absolute_uri(user.profile_photo.url) if user.profile_photo else None
-        }, status=status.HTTP_200_OK)
+        data = self._user_data(user, request)
+        data["message"] = "Profile updated successfully"
+        return Response(data, status=status.HTTP_200_OK)
+
+    # parkroo_app (Flutter) sends PATCH for the profile-photo-only update path.
+    def patch(self, request):
+        return self.put(request)
 
 
 class AccountDeleteView(APIView):
@@ -376,18 +398,6 @@ class PasswordResetConfirmView(APIView):
         )
 
 
-# ─── Admin-only permission helper ────────────────────────────────────────────
-
-class IsAdmin(BasePermission):
-    """Allow access only to users with role='admin'."""
-    def has_permission(self, request, view):
-        return bool(
-            request.user and
-            request.user.is_authenticated and
-            request.user.role == "admin"
-        )
-
-
 # ─── Admin: List all users (with optional role / status filters) ──────────────
 class AdminUserListView(APIView):
     permission_classes = [IsAuthenticated, IsAdmin]
@@ -408,8 +418,24 @@ class AdminUserListView(APIView):
         elif status_filter == "pending":
             users = users.filter(role="parking_owner", is_approved=False, is_active=True)
 
-        data = [
-            {
+        data = []
+        for u in users:
+            # Count sites and cashiers for this owner
+            total_sites = 0
+            total_cashiers = 0
+            if u.role == "parking_owner":
+                from parking.models import ParkingSite
+                from accounts.models import User as UserModel
+                sites = ParkingSite.objects.filter(owner=u)
+                total_sites = sites.count()
+                total_cashiers = UserModel.objects.filter(role="cashier", site__in=sites).count()
+            
+            try:
+                profile_photo_url = request.build_absolute_uri(u.profile_photo.url) if u.profile_photo else None
+            except Exception:
+                profile_photo_url = None
+
+            data.append({
                 "id": str(u.id),
                 "full_name": u.full_name,
                 "email": u.email,
@@ -422,16 +448,11 @@ class AdminUserListView(APIView):
                     "pending" if u.role == "parking_owner" and not u.is_approved else
                     "active"
                 ),
-                "site_id": str(u.site.id) if u.site else None,
-                "site_name": u.site.name if u.site else None,
+                "siteCount": total_sites,
+                "cashierCount": total_cashiers,
                 "created_at": u.created_at,
-                "profile_photo": (
-                    request.build_absolute_uri(u.profile_photo.url)
-                    if u.profile_photo else None
-                ),
-            }
-            for u in users
-        ]
+                "profile_photo": profile_photo_url,
+            })
         return Response(data, status=status.HTTP_200_OK)
 
 
@@ -511,6 +532,8 @@ class AdminDashboardStatsView(APIView):
         from bookings.models import Booking
         from payments.models import Payment
         from ai_module.models import AiLog
+        from django.db.models import Sum, Count
+        from datetime import timedelta
 
         today = timezone.now().date()
 
@@ -541,14 +564,14 @@ class AdminDashboardStatsView(APIView):
         recent_payments = (
             Payment.objects
             .filter(status="success")
-            .select_related("booking__vehicle", "booking__parking_slot__parking_site")
+            .select_related("booking__parking_slot__parking_site")
             .order_by("-paid_at")[:5]
         )
         recent_transactions = []
         for p in recent_payments:
             try:
                 site = p.booking.parking_slot.parking_site.name
-                plate = p.booking.vehicle.plate_number
+                plate = p.booking.vehicle_plate or '—'
             except Exception:
                 site = "—"
                 plate = "—"
@@ -590,6 +613,87 @@ class AdminDashboardStatsView(APIView):
             detected_at__date=today
         ).count()
 
+        # ── Slot Data Per Site ──
+        slot_data = []
+        for site in ParkingSite.objects.filter(status="active"):
+            t_slots = ParkingSlot.objects.filter(parking_site=site).count()
+            o_slots = ParkingSlot.objects.filter(parking_site=site, is_occupied=True).count()
+            pct = round((o_slots / t_slots * 100)) if t_slots > 0 else 0
+            slot_data.append({
+                "site": site.name,
+                "total": t_slots,
+                "occ": o_slots,
+                "pct": pct
+            })
+
+        # ── Revenue Data (Last 7 Days) ──
+        revenue_data = []
+        DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        for i in range(6, -1, -1):
+            d = today - timedelta(days=i)
+            day_payments = Payment.objects.filter(status="success", paid_at__date=d)
+            cash = day_payments.filter(payment_method="cash").aggregate(total=Sum("amount"))["total"] or 0
+            card = day_payments.filter(payment_method="card").aggregate(total=Sum("amount"))["total"] or 0
+            wallet = day_payments.filter(payment_method__in=["online", "easypaisa"]).aggregate(total=Sum("amount"))["total"] or 0
+            revenue_data.append({
+                "label": DAYS[d.weekday()],
+                "Cash": float(cash),
+                "Card": float(card),
+                "Wallet": float(wallet),
+            })
+
+        # ── AI Accuracy Data (Last 7 Days) ──
+        ai_accuracy_data = []
+        for i in range(6, -1, -1):
+            d = today - timedelta(days=i)
+            day_logs = AiLog.objects.filter(detected_at__date=d)
+            
+            lpd_logs = day_logs.filter(processed_model_name="LPD")
+            lpd_acc = sum(l.confidence_score for l in lpd_logs) / lpd_logs.count() * 100 if lpd_logs.exists() else 0
+            
+            ocr_logs = day_logs.filter(processed_model_name="OCR")
+            ocr_acc = sum(l.confidence_score for l in ocr_logs) / ocr_logs.count() * 100 if ocr_logs.exists() else 0
+
+            ai_accuracy_data.append({
+                "day": DAYS[d.weekday()],
+                "LPD": round(lpd_acc, 1),
+                "OCR": round(ocr_acc, 1)
+            })
+
+        # ── Live Activities (Last 10 Logs) ──
+        live_activities = []
+        recent_logs = AiLog.objects.select_related("booking__parking_slot__parking_site").order_by("-detected_at")[:10]
+        for l in recent_logs:
+            msg = "Vehicle entered" if l.log_type == "entry" else "Vehicle exited"
+            dot_class = "bg-green-500" if l.status == "approved" else ("bg-red-500" if l.status == "rejected" else "bg-yellow-500")
+            if l.status == "pending" and l.log_type == "exit":
+                msg = "Dispute raised / Pending exit"
+            
+            try:
+                site_name = l.booking.parking_slot.parking_site.name
+            except Exception:
+                site_name = "Unknown Site"
+
+            # rudimentary "time ago" string
+            diff = timezone.now() - l.detected_at
+            if diff.days > 0:
+                time_str = f"{diff.days}d ago"
+            elif diff.seconds >= 3600:
+                time_str = f"{diff.seconds // 3600}h ago"
+            elif diff.seconds >= 60:
+                time_str = f"{diff.seconds // 60}m ago"
+            else:
+                time_str = "just now"
+
+            live_activities.append({
+                "id": str(l.id),
+                "dotClass": dot_class,
+                "plate": l.detected_plate_number or "???",
+                "site": site_name,
+                "msg": msg,
+                "time": time_str
+            })
+
         return Response({
             "sites": {
                 "total": total_sites,
@@ -618,6 +722,10 @@ class AdminDashboardStatsView(APIView):
             },
             "recent_transactions": recent_transactions,
             "pending_owner_approvals": pending_owner_list,
+            "slot_data": slot_data,
+            "revenue_data": revenue_data,
+            "ai_accuracy_data": ai_accuracy_data,
+            "live_activities": live_activities,
         }, status=status.HTTP_200_OK)
 
 
@@ -629,20 +737,21 @@ class AdminSystemLogsView(APIView):
         from payments.models import Payment
         from ai_module.models import AiLog
 
-        bookings = Booking.objects.select_related("parking_slot__parking_site", "vehicle").order_by("-created_at")[:40]
+        bookings = Booking.objects.select_related("parking_slot__parking_site").order_by("-created_at")[:40]
         payments = Payment.objects.order_by("-paid_at")[:40]
         ai_logs = AiLog.objects.select_related("booking__parking_slot__parking_site").order_by("-detected_at")[:40]
 
         combined = []
         for b in bookings:
+            plate = b.vehicle_plate or "unknown"
             combined.append({
                 "id": f"b-{b.id}",
                 "type": "BOOKING",
-                "desc": f"Booking {b.status} — vehicle {b.vehicle.plate_number if b.vehicle else 'unknown'}",
+                "desc": f"Booking {b.status} — vehicle {plate}",
                 "status": b.status,
                 "time": b.created_at,
                 "site": b.parking_slot.parking_site.name if b.parking_slot and b.parking_slot.parking_site else "—",
-                "plate": b.vehicle.plate_number if b.vehicle else "—",
+                "plate": plate,
                 "user": "System",
             })
 
@@ -856,6 +965,11 @@ class AdminApproveOnboardView(APIView):
                     name=query.proposed_site_name or f"{query.full_name}'s Parking",
                     location="To be updated",
                     capacity=query.site_capacity or 20,
+                    email=query.email,
+                    phone=query.phone_number,
+                    contact_number=query.phone_number,
+                    total_slots=query.site_capacity or 20,
+                    status="active",
                 )
 
                 # 5. Link site to user
@@ -871,29 +985,28 @@ class AdminApproveOnboardView(APIView):
         # 6. Send email to the new owner with credentials
         email_sent = False
         try:
-            if settings.EMAIL_HOST_USER:
-                send_mail(
-                    subject="Welcome to SmartPark — Your Parking Owner Account is Ready!",
-                    message=(
-                        f"Dear {query.full_name},\n\n"
-                        f"Congratulations! Your parking owner registration has been approved by the SmartPark admin team.\n\n"
-                        f"Your account has been created with the following credentials:\n\n"
-                        f"  Email:    {query.email}\n"
-                        f"  Password: {temp_password}\n\n"
-                        f"To access your Owner Dashboard:\n"
-                        f"  1. Visit the SmartPark landing page: http://localhost:5500\n"
-                        f"  2. Click 'Sign In' and select 'Parking Owner'\n"
-                        f"  3. Enter the above credentials\n\n"
-                        f"Your parking site '{site.name}' has been created and is ready to configure.\n\n"
-                        f"For security, please change your password after your first login.\n\n"
-                        f"Best regards,\n"
-                        f"SmartPark Admin Team"
-                    ),
-                    from_email=settings.EMAIL_HOST_USER,
-                    recipient_list=[query.email],
-                    fail_silently=False,
-                )
-                email_sent = True
+            send_mail(
+                subject="Welcome to SmartPark — Your Parking Owner Account is Ready!",
+                message=(
+                    f"Dear {query.full_name},\n\n"
+                    f"Congratulations! Your parking owner registration has been approved by the SmartPark admin team.\n\n"
+                    f"Your account has been created with the following credentials:\n\n"
+                    f"  Email:    {query.email}\n"
+                    f"  Password: {temp_password}\n\n"
+                    f"To access your Owner Dashboard:\n"
+                    f"  1. Visit the SmartPark landing page: http://localhost:5500\n"
+                    f"  2. Click 'Sign In' and select 'Parking Owner'\n"
+                    f"  3. Enter the above credentials\n\n"
+                    f"Your parking site '{site.name}' has been created and is ready to configure.\n\n"
+                    f"For security, please change your password after your first login.\n\n"
+                    f"Best regards,\n"
+                    f"SmartPark Admin Team"
+                ),
+                from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "no-reply@smartpark.com"),
+                recipient_list=[query.email],
+                fail_silently=False,
+            )
+            email_sent = True
         except Exception as e:
             email_sent = False
             print(f"Email sending failed: {str(e)}")
@@ -1092,15 +1205,6 @@ class AdminNotificationCountView(APIView):
         }, status=status.HTTP_200_OK)
 
 
-class IsOwner(BasePermission):
-    def has_permission(self, request, view):
-        return bool(
-            request.user and 
-            request.user.is_authenticated and 
-            request.user.role == "parking_owner"
-        )
-
-
 class OwnerDashboardStatsView(APIView):
     permission_classes = [IsAuthenticated, IsOwner]
 
@@ -1113,6 +1217,8 @@ class OwnerDashboardStatsView(APIView):
 
         today = timezone.now().date()
         sites = ParkingSite.objects.filter(owner=request.user)
+        
+        
         site_ids = sites.values_list('id', flat=True)
 
         total_slots = ParkingSlot.objects.filter(
@@ -1139,14 +1245,14 @@ class OwnerDashboardStatsView(APIView):
         recent_bookings = Booking.objects.filter(
             parking_slot__parking_site__in=site_ids
         ).select_related(
-            'vehicle', 'parking_slot', 'parking_slot__parking_site'
+            'parking_slot', 'parking_slot__parking_site'
         ).order_by('-created_at')[:5]
 
         recent_data = []
         for b in recent_bookings:
             recent_data.append({
                 'id': str(b.id),
-                'plate_number': b.vehicle.plate_number if b.vehicle else "—",
+                'plate_number': b.vehicle_plate or '—',
                 'slot_number': b.parking_slot.slot_number if b.parking_slot else "—",
                 'site_name': b.parking_slot.parking_site.name if b.parking_slot and b.parking_slot.parking_site else "—",
                 'status': b.status,
@@ -1164,6 +1270,7 @@ class OwnerDashboardStatsView(APIView):
             'total_revenue': str(total_revenue),
             'today_revenue': str(today_revenue),
             'recent_bookings': recent_data,
+            'sites': [{'id': str(s.id), 'name': s.name, 'location': s.location} for s in sites],
         })
 
 
@@ -1185,6 +1292,8 @@ class OwnerCashierView(APIView):
         } for c in cashiers]
         return Response(data)
 
+    CASHIER_ROLES = ('cashier', 'entry_cashier', 'exit_cashier')
+
     def post(self, request):
         import secrets
         data = request.data
@@ -1194,14 +1303,25 @@ class OwnerCashierView(APIView):
             return Response(
                 {'error': 'Email already exists'}, status=400)
 
-        cashier = User.objects.create_user(
-            email=data['email'],
-            full_name=data.get('full_name', ''),
-            phone_number=data.get('phone_number', ''),
-            password=password,
-            role=data.get('role', 'cashier'),
-            site=request.user.site,
-        )
+        role = data.get('role', 'cashier')
+        if role not in self.CASHIER_ROLES:
+            return Response(
+                {'error': f"role must be one of {', '.join(self.CASHIER_ROLES)}"},
+                status=400)
+
+        try:
+            cashier = User.objects.create_user(
+                email=data['email'],
+                full_name=data.get('full_name', ''),
+                phone_number=data.get('phone_number', ''),
+                password=password,
+                role=role,
+            )
+            cashier.site = request.user.site
+            cashier.save()
+        except ValueError as e:
+            return Response({'error': str(e)}, status=400)
+
         return Response({
             'id': str(cashier.id),
             'full_name': cashier.full_name,
@@ -1214,6 +1334,38 @@ class OwnerCashierView(APIView):
 class OwnerCashierDetailView(APIView):
     permission_classes = [IsAuthenticated, IsOwner]
 
+    def put(self, request, cashier_id):
+        try:
+            cashier = User.objects.get(id=cashier_id, site=request.user.site)
+        except User.DoesNotExist:
+            return Response({'error': 'Cashier not found'}, status=404)
+        
+        data = request.data
+        if 'full_name' in data:
+            cashier.full_name = data['full_name']
+        if 'phone_number' in data:
+            cashier.phone_number = data['phone_number']
+        if 'role' in data:
+            if data['role'] not in OwnerCashierView.CASHIER_ROLES:
+                return Response(
+                    {'error': f"role must be one of {', '.join(OwnerCashierView.CASHIER_ROLES)}"},
+                    status=400)
+            cashier.role = data['role']
+        if 'is_active' in data:
+            cashier.is_active = data['is_active']
+        if 'password' in data and data['password']:
+            cashier.set_password(data['password'])
+            
+        cashier.save()
+        return Response({
+            'id': str(cashier.id),
+            'full_name': cashier.full_name,
+            'email': cashier.email,
+            'role': cashier.role,
+            'phone_number': cashier.phone_number,
+            'is_active': cashier.is_active,
+        })
+
     def delete(self, request, cashier_id):
         try:
             cashier = User.objects.get(
@@ -1222,3 +1374,128 @@ class OwnerCashierDetailView(APIView):
             return Response({'message': 'Cashier deleted'})
         except User.DoesNotExist:
             return Response({'error': 'Not found'}, status=404)
+
+class AdminOwnerDetailView(APIView):
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def get(self, request, pk):
+        from parking.models import ParkingSite
+        from bookings.models import Booking
+        from payments.models import Payment
+        from django.db.models import Sum
+        import datetime
+
+        try:
+            owner = User.objects.get(pk=pk, role='parking_owner')
+        except User.DoesNotExist:
+            return Response({'error': 'Owner not found'}, status=404)
+
+        # Sites
+        sites_qs = ParkingSite.objects.filter(owner=owner)
+        sites_data = []
+        for s in sites_qs:
+            normal = s.slots.filter(slot_type='normal').count()
+            vip = s.slots.filter(slot_type='vip').count()
+            disabled = s.slots.filter(slot_type='disabled').count()
+            occupied = s.slots.filter(is_occupied=True).count()
+            
+            try:
+                bookings_count = Booking.objects.filter(parking_slot__parking_site=s).count()
+            except Exception:
+                bookings_count = 0
+                
+            try:
+                revenue = Payment.objects.filter(status='success', booking__parking_slot__parking_site=s).aggregate(total=Sum('amount'))['total'] or 0
+            except Exception:
+                revenue = 0
+
+            sites_data.append({
+                'id': str(s.id),
+                'name': s.name,
+                'address': s.address or s.location,
+                'city': s.city,
+                'total_slots': s.total_slots or s.capacity,
+                'status': s.status,
+                'created_at': s.created_at,
+                'occupied': occupied,
+                'slots': {'normal': normal, 'vip': vip, 'disabled': disabled},
+                'bookings': bookings_count,
+                'revenue': float(revenue)
+            })
+
+        # Cashiers
+        cashiers_qs = User.objects.filter(site__in=sites_qs)
+        cashiers_data = []
+        for c in cashiers_qs:
+            cashiers_data.append({
+                'id': str(c.id),
+                'name': c.full_name,
+                'site_id': str(c.site_id),
+                'status': 'active' if c.is_active else 'blocked',
+                'parking_sites': {'name': c.site.name if c.site else ''}
+            })
+
+        try:
+            total_bookings = Booking.objects.filter(parking_slot__parking_site__in=sites_qs).count()
+        except Exception:
+            total_bookings = 0
+            
+        try:
+            total_revenue = Payment.objects.filter(status='success', booking__parking_slot__parking_site__in=sites_qs).aggregate(total=Sum('amount'))['total'] or 0
+        except Exception:
+            total_revenue = 0
+
+        # Monthly Revenue (current year)
+        current_year = datetime.datetime.now().year
+        monthly_revenue = []
+        for month in range(1, 13):
+            try:
+                val = Payment.objects.filter(
+                    status='success',
+                    paid_at__year=current_year,
+                    paid_at__month=month,
+                    booking__parking_slot__parking_site__in=sites_qs
+                ).aggregate(total=Sum('amount'))['total'] or 0
+            except Exception:
+                val = 0
+            monthly_revenue.append(float(val))
+
+        return Response({
+            'owner': {
+                'id': str(owner.id),
+                'name': owner.full_name,
+                'email': owner.email,
+                'phone': owner.phone_number,
+                'status': 'blocked' if not owner.is_active else ('pending' if not owner.is_approved else 'active'),
+                'created_at': owner.created_at
+            },
+            'sites': sites_data,
+            'cashiers': cashiers_data,
+            'bookingsCount': total_bookings,
+            'revenue': float(total_revenue),
+            'monthlyRevenue': monthly_revenue
+        })
+
+class AdminOwnerCleanupView(APIView):
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def delete(self, request):
+        email = request.data.get('email')
+        if not email:
+            return Response({'error': 'Email is required'}, status=400)
+        
+        # 1. Delete OwnerRegistrationQuery if exists
+        from accounts.models import OwnerRegistrationQuery
+        queries = OwnerRegistrationQuery.objects.filter(email=email)
+        queries_deleted = queries.count()
+        queries.delete()
+
+        # 2. Delete User if exists
+        users = User.objects.filter(email=email, role='parking_owner')
+        users_deleted = users.count()
+        users.delete()
+
+        if queries_deleted == 0 and users_deleted == 0:
+            return Response({'error': 'No owner or registration query found with this email'}, status=404)
+        
+        return Response({'message': 'Owner cleaned up successfully'})

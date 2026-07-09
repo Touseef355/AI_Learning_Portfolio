@@ -1,51 +1,67 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import api from '../../api/axios'
 import { FileText, Download, TrendingUp, Calendar, DollarSign, Users, Car, BarChart3 } from 'lucide-react'
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
-import { getUser } from '../../utils/auth'
 
 const Reports = () => {
   const [dateRange, setDateRange] = useState('This Month')
   const [reportType, setReportType] = useState('Revenue')
-  const [bookings, setBookings] = useState([])
+  const [payments, setPayments] = useState([])
   const [slots, setSlots] = useState([])
   const [cashiersList, setCashiersList] = useState([])
   const [sites, setSites] = useState([])
   const [siteId, setSiteId] = useState(null)
-  const [reportData, setReportData] = useState([])
+  const [_monthlyRevenue, setMonthlyRevenue] = useState([])
 
   useEffect(() => {
     fetchData()
   }, [])
 
-  const fetchData = async () => {
+  async function fetchSlotsForSite(id) {
+    if (!id) return
     try {
-      const resSites = await api.get('/parking/sites/')
-      setSites(resSites.data || [])
-      
-      const resReport = await api.get('/payments/owner/')
-      setReportData(resReport.data.monthly_revenue || [])
-      
-      const resBookings = await api.get('/bookings/')
-      const mappedBookings = (resBookings.data || []).map(b => ({
-        ...b,
-        booking_date: b.entry_time ? b.entry_time.split('T')[0] : new Date().toISOString().split('T')[0],
-        payment_status: b.payment_status === 'paid' || b.payment_status === 'Paid' ? 'Paid' : 'Pending',
-        amount: parseFloat(b.estimated_amount) || 0
+      const res = await api.get(`/parking/sites/${id}/slots/`)
+      const mapped = (res.data || []).map(s => ({
+        id: s.id,
+        slotNumber: s.slot_number,
+        status: s.is_occupied ? 'Occupied' : s.is_reserved ? 'Reserved' : 'Available',
       }))
-      setBookings(mappedBookings)
+      setSlots(mapped)
     } catch (err) {
       console.error(err)
     }
   }
 
-  // Full data with dates - NOW FROM SUPABASE
+  async function fetchData(selectedSiteId) {
+    try {
+      const resSites = await api.get('/parking/sites/')
+      const siteList = resSites.data || []
+      setSites(siteList)
+
+      const currentSiteId = selectedSiteId || (siteList.length > 0 ? siteList[0].id : null)
+      if (currentSiteId) {
+        setSiteId(currentSiteId)
+        await fetchSlotsForSite(currentSiteId)
+      }
+
+      const resPayments = await api.get('/payments/owner/')
+      const pd = resPayments.data
+      setPayments(pd.payments || [])
+      setMonthlyRevenue(pd.monthly_revenue || [])
+
+      const resCashiers = await api.get('/auth/owner/cashiers/')
+      setCashiersList(resCashiers.data || [])
+    } catch (err) {
+      console.error(err)
+    }
+  }
+
   const allRevenueData = useMemo(() => {
     const grouped = {}
-    bookings.forEach(b => {
-      const date = b.booking_date || new Date().toISOString().split('T')[0]
+    payments.forEach(p => {
+      const date = p.paid_at ? p.paid_at.split('T')[0] : new Date().toISOString().split('T')[0]
       if (!grouped[date]) grouped[date] = { name: '', date, revenue: 0, bookings: 0 }
-      if (b.payment_status === 'Paid') grouped[date].revenue += b.amount || 0
+      if (p.status === 'success') grouped[date].revenue += parseFloat(p.amount) || 0
       grouped[date].bookings += 1
     })
     return Object.values(grouped)
@@ -55,17 +71,15 @@ const Reports = () => {
        ...d,
         name: new Date(d.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
       }))
-  }, [bookings])
+  }, [payments])
 
   const occupancyData = useMemo(() => {
-    const total = slots.length || 85
+    const total = slots.length || 1
     const occupied = slots.filter(s => s.status === 'Occupied').length
     const available = total - occupied
     return [
-      { name: 'Morning', occupied: Math.floor(occupied * 0.8), available: Math.floor(available * 0.8) },
-      { name: 'Afternoon', occupied: Math.floor(occupied * 0.9), available: Math.floor(available * 0.9) },
-      { name: 'Evening', occupied, available },
-      { name: 'Night', occupied: Math.floor(occupied * 0.4), available: total - Math.floor(occupied * 0.4) },
+      { name: 'Occupied', occupied, available: 0 },
+      { name: 'Available', occupied: 0, available },
     ]
   }, [slots])
 
@@ -75,18 +89,15 @@ const Reports = () => {
   ]
 
   const topCashiers = useMemo(() => {
-    return cashiersList.map(c => {
-      const cb = bookings.filter(b => b.cashier_id === c.id)
-      return {
-        name: c.name,
-        bookings: cb.length,
-        revenue: cb.filter(b => b.payment_status === 'Paid').reduce((s, b) => s + (b.amount || 0), 0)
-      }
-    }).sort((a,b) => b.revenue - a.revenue)
-  }, [cashiersList, bookings])
+    return cashiersList.map(c => ({
+      name: c.full_name || c.name || 'Unknown',
+      email: c.email || '',
+      bookings: 0,
+      revenue: 0,
+    }))
+  }, [cashiersList])
 
-  // Date filter logic
-  const filterByDate = (data) => {
+  const filterByDate = useCallback((data) => {
     const today = new Date()
     const dataDate = new Date(data.date)
 
@@ -115,18 +126,18 @@ const Reports = () => {
     }
 
     return true
-  }
+  }, [dateRange])
 
   const filteredRevenueData = useMemo(() => {
     return allRevenueData.filter(filterByDate)
-  }, [dateRange, allRevenueData])
+  }, [dateRange, allRevenueData, filterByDate])
 
   const stats = useMemo(() => {
-    const data = filteredRevenueData.length > 0? filteredRevenueData : allRevenueData
+    const data = filteredRevenueData.length > 0 ? filteredRevenueData : allRevenueData
     const totalRevenue = data.reduce((sum, d) => sum + d.revenue, 0)
     const totalBookings = data.reduce((sum, d) => sum + d.bookings, 0)
-    const avgRevenue = data.length > 0? Math.round(totalRevenue / data.length) : 0
-    const occupancyRate = slots.length? Math.round((slots.filter(s => s.status === 'Occupied').length / slots.length) * 100) : 0
+    const avgRevenue = data.length > 0 ? Math.round(totalRevenue / data.length) : 0
+    const occupancyRate = slots.length ? Math.round((slots.filter(s => s.status === 'Occupied').length / slots.length) * 100) : 0
 
     return { totalRevenue, totalBookings, avgRevenue, occupancyRate }
   }, [filteredRevenueData, allRevenueData, slots])
@@ -141,15 +152,15 @@ const Reports = () => {
       csvContent = [headers.join(','),...rows.map(r => r.join(','))].join('\n')
       filename = `revenue_report_${dateRange.replace(' ', '_').toLowerCase()}.csv`
     } else if (reportType === 'Occupancy') {
-      const headers = ['Time Slot', 'Occupied', 'Available']
-      const rows = occupancyData.map(d => [d.name, d.occupied, d.available])
+      const headers = ['Status', 'Count']
+      const rows = occupancyData.map(d => [d.name, d.occupied || d.available])
       csvContent = [headers.join(','),...rows.map(r => r.join(','))].join('\n')
       filename = `occupancy_report.csv`
     } else if (reportType === 'Cashier Performance') {
-      const headers = ['Cashier Name', 'Total Bookings', 'Total Revenue']
-      const rows = topCashiers.map(c => [c.name, c.bookings, c.revenue])
+      const headers = ['Cashier Name', 'Email']
+      const rows = topCashiers.map(c => [c.name, c.email])
       csvContent = [headers.join(','),...rows.map(r => r.join(','))].join('\n')
-      filename = `cashier_performance_report.csv`
+      filename = `cashier_report.csv`
     } else {
       const headers = ['Vehicle Type', 'Percentage']
       const rows = vehicleTypeData.map(v => [v.name, v.value])
@@ -172,7 +183,6 @@ const Reports = () => {
 
   return (
     <div className="p-6 space-y-6 bg-gray-50 min-h-screen">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Reports & Analytics</h1>
@@ -196,7 +206,6 @@ const Reports = () => {
         </div>
       </div>
 
-      {/* Filters */}
       <div className="bg-white rounded-xl p-4 border border-gray-200">
         <div className="flex flex-col md:flex-row gap-4">
           {sites.length > 0 && (
@@ -205,7 +214,8 @@ const Reports = () => {
               onChange={async (e) => {
                 const selectedId = e.target.value
                 setSiteId(selectedId)
-                await fetchData(selectedId)
+                setSlots([])
+                await fetchSlotsForSite(selectedId)
               }}
               className="px-4 py-2 bg-gray-50 border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
@@ -238,7 +248,6 @@ const Reports = () => {
         </div>
       </div>
 
-      {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <div className="bg-white rounded-xl p-6 border border-gray-200">
           <div className="flex items-center justify-between">
@@ -246,8 +255,7 @@ const Reports = () => {
               <p className="text-sm text-gray-500">Total Revenue</p>
               <p className="text-2xl font-bold text-gray-900 mt-1">Rs. {stats.totalRevenue.toLocaleString()}</p>
               <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
-                <TrendingUp className="w-3 h-3" />
-                +12.5% from last period
+                <TrendingUp className="w-3 h-3" /> From completed payments
               </p>
             </div>
             <div className="p-3 bg-green-100 rounded-lg">
@@ -259,11 +267,10 @@ const Reports = () => {
         <div className="bg-white rounded-xl p-6 border border-gray-200">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-500">Total Bookings</p>
+              <p className="text-sm text-gray-500">Total Transactions</p>
               <p className="text-2xl font-bold text-gray-900 mt-1">{stats.totalBookings}</p>
               <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
-                <TrendingUp className="w-3 h-3" />
-                +8.2% from last period
+                <TrendingUp className="w-3 h-3" /> In selected period
               </p>
             </div>
             <div className="p-3 bg-blue-100 rounded-lg">
@@ -290,10 +297,7 @@ const Reports = () => {
             <div>
               <p className="text-sm text-gray-500">Occupancy Rate</p>
               <p className="text-2xl font-bold text-gray-900 mt-1">{stats.occupancyRate}%</p>
-              <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
-                <TrendingUp className="w-3 h-3" />
-                +5.3% from last period
-              </p>
+              <p className="text-xs text-gray-500 mt-1">Current</p>
             </div>
             <div className="p-3 bg-orange-100 rounded-lg">
               <Car className="w-5 h-5 text-orange-600" />
@@ -302,7 +306,6 @@ const Reports = () => {
         </div>
       </div>
 
-      {/* Charts - Conditional Based on Report Type */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {(reportType === 'Revenue' || reportType === 'Bookings') && (
           <div className="bg-white rounded-xl p-6 border border-gray-200 lg:col-span-2">
@@ -316,7 +319,7 @@ const Reports = () => {
                   contentStyle={{ backgroundColor: '#FFF', border: '1px solid #E5E7EB', borderRadius: '8px' }}
                 />
                 <Line type="monotone" dataKey="revenue" stroke="#10B981" strokeWidth={2} name="Revenue (Rs)" />
-                <Line type="monotone" dataKey="bookings" stroke="#3B82F6" strokeWidth={2} name="Bookings" />
+                <Line type="monotone" dataKey="bookings" stroke="#3B82F6" strokeWidth={2} name="Transactions" />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -324,7 +327,7 @@ const Reports = () => {
 
         {(reportType === 'Occupancy' || reportType === 'Revenue') && (
           <div className="bg-white rounded-xl p-6 border border-gray-200">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Occupancy by Time Slot</h3>
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Slot Occupancy</h3>
             <ResponsiveContainer width="100%" height={300}>
               <BarChart data={occupancyData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
@@ -367,9 +370,11 @@ const Reports = () => {
 
         {(reportType === 'Cashier Performance' || reportType === 'Revenue') && (
           <div className="bg-white rounded-xl p-6 border border-gray-200 lg:col-span-2">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Top Performing Cashiers</h3>
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Cashiers</h3>
             <div className="space-y-4">
-              {topCashiers.map((cashier, index) => (
+              {topCashiers.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-4">No cashiers found</p>
+              ) : topCashiers.map((cashier, index) => (
                 <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-semibold">
@@ -377,10 +382,9 @@ const Reports = () => {
                     </div>
                     <div>
                       <p className="text-sm font-medium text-gray-900">{cashier.name}</p>
-                      <p className="text-xs text-gray-500">{cashier.bookings} bookings</p>
+                      <p className="text-xs text-gray-500">{cashier.email}</p>
                     </div>
                   </div>
-                  <p className="text-sm font-bold text-green-600">Rs. {cashier.revenue.toLocaleString()}</p>
                 </div>
               ))}
             </div>

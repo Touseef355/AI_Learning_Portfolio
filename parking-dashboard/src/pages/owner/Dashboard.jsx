@@ -5,7 +5,7 @@ import { getUser } from '../../utils/auth'
 
 const OwnerDashboard = () => {
   const [loading, setLoading]           = useState(true)
-  const [sites, setSites]               = useState([])
+  const [totalSites, setTotalSites]       = useState(0)
   const [stats, setStats]               = useState({
     totalRevenue: 0, todayRevenue: 0,
     totalBookings: 0, activeBookings: 0,
@@ -19,7 +19,7 @@ const OwnerDashboard = () => {
     try {
       const res = await api.get('/auth/owner/dashboard/')
       const d = res.data
-      setSites([])
+      setTotalSites(d.total_sites || 0)
       setStats({
         totalRevenue:   parseFloat(d.total_revenue) || 0,
         todayRevenue:   parseFloat(d.today_revenue) || 0,
@@ -60,7 +60,7 @@ const OwnerDashboard = () => {
     )
   }
 
-  if (sites.length === 0) {
+  if (totalSites === 0) {
     return (
       <div className="p-6 flex items-center justify-center min-h-screen">
         <div className="text-center">
@@ -81,7 +81,7 @@ const OwnerDashboard = () => {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Owner Dashboard</h1>
           <p className="text-gray-500 mt-1 text-sm">
-            Managing {sites.length} site{sites.length > 1 ? 's' : ''} — {sites.map(s => s.name).join(', ')}
+            Managing {totalSites} site{totalSites > 1 ? 's' : ''}
           </p>
         </div>
         <button onClick={fetchDashboardData} className="flex items-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg text-sm hover:bg-gray-50 transition-colors">
@@ -150,8 +150,8 @@ const OwnerDashboard = () => {
             <thead className="bg-gray-50">
               <tr>
                 <th className="text-left text-xs font-medium text-gray-500 uppercase px-6 py-3">ID</th>
-                <th className="text-left text-xs font-medium text-gray-500 uppercase px-6 py-3">Customer</th>
-                <th className="text-left text-xs font-medium text-gray-500 uppercase px-6 py-3">Vehicle</th>
+                <th className="text-left text-xs font-medium text-gray-500 uppercase px-6 py-3">Plate</th>
+                <th className="text-left text-xs font-medium text-gray-500 uppercase px-6 py-3">Slot</th>
                 <th className="text-left text-xs font-medium text-gray-500 uppercase px-6 py-3">Amount</th>
                 <th className="text-left text-xs font-medium text-gray-500 uppercase px-6 py-3">Status</th>
               </tr>
@@ -162,21 +162,21 @@ const OwnerDashboard = () => {
                   <td colSpan={5} className="px-6 py-8 text-center text-gray-400 text-sm">No bookings yet</td>
                 </tr>
               ) : recentBookings.map(b => (
-                <tr key={b.id} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-6 py-4 text-sm font-mono text-gray-500">#{String(b.id).slice(-6)}</td>
-                  <td className="px-6 py-4 text-sm text-gray-900">{b.customer_name || '—'}</td>
-                  <td className="px-6 py-4 text-sm font-mono text-gray-900">{b.vehicle_no || '—'}</td>
-                  <td className="px-6 py-4 text-sm font-semibold text-green-600">Rs. {(b.amount || 0).toLocaleString()}</td>
-                  <td className="px-6 py-4">
-                    <span className={`px-2 py-1 text-xs rounded-full font-medium ${
-                      ['completed','Completed'].includes(b.status || '') ? 'bg-green-100 text-green-700' :
-                      ['active','Active','upcoming','Upcoming'].includes(b.status || '') ? 'bg-blue-100 text-blue-700' :
-                      'bg-gray-100 text-gray-600'
-                    }`}>
-                      {b.status || '—'}
-                    </span>
-                  </td>
-                </tr>
+                  <tr key={b.id} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-6 py-4 text-sm font-mono text-gray-500">#{String(b.id).slice(-6)}</td>
+                    <td className="px-6 py-4 text-sm text-gray-900">{b.plate_number || '—'}</td>
+                    <td className="px-6 py-4 text-sm font-mono text-gray-900">{b.slot_number || '—'}</td>
+                    <td className="px-6 py-4 text-sm font-semibold text-green-600">Rs. {(parseFloat(b.estimated_amount) || 0).toLocaleString()}</td>
+                    <td className="px-6 py-4">
+                      <span className={`px-2 py-1 text-xs rounded-full font-medium ${
+                        ['completed','Completed'].includes(b.status || '') ? 'bg-green-100 text-green-700' :
+                        ['active','Active','upcoming','Upcoming'].includes(b.status || '') ? 'bg-blue-100 text-blue-700' :
+                        'bg-gray-100 text-gray-600'
+                      }`}>
+                        {b.status || '—'}
+                      </span>
+                    </td>
+                  </tr>
               ))}
             </tbody>
           </table>

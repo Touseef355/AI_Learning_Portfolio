@@ -127,20 +127,22 @@ class EntryConsumer(AsyncWebsocketConsumer):
     async def entry_detected(self, event):
         if not self.authenticated:
             return
-        await self.send(text_data=json.dumps({
-            "type"         : "entry_detected",
-            "ai_log_id"    : event["ai_log_id"],
-            "plate_number" : event["plate_number"],
-            "confidence"   : event["confidence"],
-            "image_url"    : event["image_url"],
-            "cropped_plate": event["cropped_plate"],
-            "has_booking"  : event["has_booking"],
-            "booking_info" : event["booking_info"],
-            "vehicle_type" : event["vehicle_type"],
-            "pre_assigned_slot": event.get("assigned_slot"),  
-            "entry_time"   : event.get("entry_time"),         
-            
-        }))
+        try:
+            await self.send(text_data=json.dumps({
+                "type"         : "entry_detected",
+                "ai_log_id"    : event["ai_log_id"],
+                "plate_number" : event["plate_number"],
+                "confidence"   : event["confidence"],
+                "image_url"    : event["image_url"],
+                "cropped_plate": event["cropped_plate"],
+                "has_booking"  : event["has_booking"],
+                "booking_info" : event["booking_info"],
+                "vehicle_type" : event["vehicle_type"],
+                "pre_assigned_slot": event.get("assigned_slot"),
+                "entry_time"   : event.get("entry_time"),
+            }))
+        except Exception:
+            return
 
 
 class ExitConsumer(AsyncWebsocketConsumer):

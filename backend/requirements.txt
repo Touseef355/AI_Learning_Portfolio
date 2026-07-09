@@ -1,0 +1,40 @@
+# Reconstructed from imports across backend_ali and backend_friend — neither
+# source backend shipped a requirements.txt/Pipfile/pyproject.toml.
+# Versions are current-stable pins compatible with Django 6.0 / Python 3.13;
+# re-freeze with `pip freeze` once the merged backend is running in a venv.
+
+Django==6.0.2
+djangorestframework==3.16.0
+djangorestframework-simplejwt==5.3.1
+django-cors-headers==4.4.0
+django-redis==5.4.0
+
+# Django Channels — WebSocket support for entry/exit gate consumers
+channels==4.1.0
+channels-redis==4.2.0
+daphne==4.1.2
+# Pinned below 5.x on purpose: redis-py 5+ negotiates RESP3 via a HELLO
+# command by default, which Redis <6.0 doesn't support and fails hard on
+# (this is exactly what broke WebSocket auth during Phase 7 validation
+# against a local Redis 5.0 server). Safe against newer Redis too — only
+# matters if whatever Redis this deploys against is also pre-6.0.
+redis==4.6.0
+
+# Database
+psycopg2-binary==2.9.10
+
+# Env / config
+python-dotenv==1.0.1
+
+# accounts: phone OTP (Twilio Verify)
+twilio==9.3.2
+
+# payments/gateway: Simpaisa HTTP calls (backend_ali)
+requests==2.32.3
+
+# accounts.User.profile_photo / ImageField support
+Pillow==10.4.0
+
+# NOTE: scikit-learn/joblib/numpy previously listed here for backend_friend's
+# peak-hour prediction feature — removed in the ai_module merge phase (was
+# broken, no trained model files existed, decided to remove rather than fix).

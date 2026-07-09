@@ -1,52 +1,68 @@
 import React, { useState, useEffect } from 'react'
 import api from '../../api/axios'
 import { Calendar, Clock, Car, Phone, Search, Filter, Eye, X } from 'lucide-react'
-import { getUser } from '../../utils/auth'
 
 const Bookings = () => {
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState('All')
   const [selectedBooking, setSelectedBooking] = useState(null)
   const [bookings, setBookings] = useState([])
-  const [siteId, setSiteId] = useState(null)
-  const [sites, setSites] = useState([])
 
   useEffect(() => {
-    fetchSites()
+    fetchBookings()
   }, [])
 
-  const fetchSites = async () => {
+  async function fetchBookings() {
     try {
-      const res = await api.get('/parking/sites/')
-      setSites(res.data || [])
-      if (res.data?.length) {
-        setSiteId(res.data[0].id)
-        await fetchBookings()
-      }
-    } catch (err) {
-      console.error(err)
-    }
-  }
+      const [bookRes, payRes] = await Promise.allSettled([
+        api.get('/bookings/owner/'),
+        api.get('/payments/owner/')
+      ])
 
-  const fetchBookings = async () => {
-    try {
-      const res = await api.get('/bookings/')
-      const mapped = (res.data || []).map(b => ({
-        id: b.id,
-        customerName: b.user?.full_name || 'Guest',
-        phone: b.user?.phone_number || '-',
-        vehicleNo: b.vehicle?.plate_number || '-',
-        slotNumber: b.parking_slot?.slot_number || 'N/A',
-        floor: '-',
-        bookingDate: b.entry_time ? b.entry_time.split('T')[0] : '-',
-        entryTime: b.entry_time ? new Date(b.entry_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-',
-        exitTime: b.exit_time ? new Date(b.exit_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-',
-        duration: '-',
-        amount: parseFloat(b.estimated_amount) || 0,
-        status: b.status ? b.status.charAt(0).toUpperCase() + b.status.slice(1) : 'Upcoming',
-        paymentStatus: b.payment_status || 'Pending'
-      }))
-      setBookings(mapped)
+      const bookingMap = {}
+      if (bookRes.status === 'fulfilled') {
+        (bookRes.value.data || []).forEach(b => {
+          const id = b.id || b.booking_id
+          bookingMap[id] = {
+            id,
+            customerName: b.user || 'Guest',
+            phone: b.user_phone || '-',
+            vehicleNo: b.vehicle_plate || '-',
+            slotNumber: b.slot_number || 'N/A',
+            bookingDate: b.entry_time ? b.entry_time.split('T')[0] : '-',
+            entryTime: b.entry_time ? new Date(b.entry_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-',
+            exitTime: b.exit_time ? new Date(b.exit_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-',
+            amount: parseFloat(b.estimated_amount) || 0,
+            status: b.status ? b.status.charAt(0).toUpperCase() + b.status.slice(1) : 'Active',
+            paymentStatus: b.payment_status === 'paid' || b.payment_status === 'Paid' ? 'Paid' : 'Pending',
+          }
+        })
+      }
+
+      if (payRes.status === 'fulfilled') {
+        const d = payRes.value.data
+        const payments = d.payments || []
+        payments.forEach(p => {
+          const id = p.id || p.booking_id
+          if (!bookingMap[id]) {
+            bookingMap[id] = {
+              id,
+              customerName: p.plate_number || 'Guest',
+              phone: '-',
+              vehicleNo: p.plate_number || '-',
+              slotNumber: p.slot_number || 'N/A',
+              bookingDate: p.paid_at ? p.paid_at.split('T')[0] : '-',
+              entryTime: p.paid_at ? new Date(p.paid_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-',
+              exitTime: '-',
+              amount: parseFloat(p.amount) || 0,
+              status: p.status === 'success' ? 'Completed' : p.status === 'pending' ? 'Active' : p.status,
+              paymentStatus: p.status === 'success' ? 'Paid' : 'Pending',
+            }
+          }
+        })
+      }
+
+      setBookings(Object.values(bookingMap))
     } catch (err) {
       console.error(err)
     }
@@ -83,8 +99,8 @@ const Bookings = () => {
   const stats = {
     total: bookings.length,
     active: bookings.filter(b => b.status === 'Active').length,
-    upcoming: bookings.filter(b => b.status === 'Upcoming').length,
     completed: bookings.filter(b => b.status === 'Completed').length,
+    cancelled: bookings.filter(b => b.status === 'Cancelled').length,
     revenue: bookings.filter(b => b.paymentStatus === 'Paid').reduce((sum, b) => sum + b.amount, 0)
   }
 
@@ -95,30 +111,11 @@ const Bookings = () => {
         <p className="text-gray-600 mt-1">View and manage all parking bookings</p>
       </div>
 
-      {sites.length > 0 && (
-        <div className="bg-white rounded-xl p-4 border border-gray-200 flex items-center gap-4">
-          <span className="text-sm font-medium text-gray-700">Select Site:</span>
-          <select
-            value={siteId || ''}
-            onChange={async (e) => {
-              const selectedId = e.target.value
-              setSiteId(selectedId)
-              await fetchBookings(selectedId)
-            }}
-            className="px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            {sites.map(s => (
-              <option key={s.id} value={s.id}>{s.name}</option>
-            ))}
-          </select>
-        </div>
-      )}
-
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
         <div className="bg-white rounded-xl p-4 border border-gray-200"><p className="text-sm text-gray-500">Total Bookings</p><p className="text-2xl font-bold text-gray-900 mt-1">{stats.total}</p></div>
         <div className="bg-white rounded-xl p-4 border border-gray-200"><p className="text-sm text-gray-500">Active</p><p className="text-2xl font-bold text-green-600 mt-1">{stats.active}</p></div>
-        <div className="bg-white rounded-xl p-4 border border-gray-200"><p className="text-sm text-gray-500">Upcoming</p><p className="text-2xl font-bold text-yellow-600 mt-1">{stats.upcoming}</p></div>
         <div className="bg-white rounded-xl p-4 border border-gray-200"><p className="text-sm text-gray-500">Completed</p><p className="text-2xl font-bold text-blue-600 mt-1">{stats.completed}</p></div>
+        <div className="bg-white rounded-xl p-4 border border-gray-200"><p className="text-sm text-gray-500">Cancelled</p><p className="text-2xl font-bold text-yellow-600 mt-1">{stats.cancelled}</p></div>
         <div className="bg-white rounded-xl p-4 border border-gray-200"><p className="text-sm text-gray-500">Total Revenue</p><p className="text-2xl font-bold text-green-600 mt-1">Rs. {stats.revenue.toLocaleString()}</p></div>
       </div>
 
@@ -133,7 +130,6 @@ const Bookings = () => {
             <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="px-4 py-2 bg-gray-50 border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500">
               <option value="All">All Status</option>
               <option value="Active">Active</option>
-              <option value="Upcoming">Upcoming</option>
               <option value="Completed">Completed</option>
               <option value="Cancelled">Cancelled</option>
             </select>
@@ -158,13 +154,17 @@ const Bookings = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {filteredBookings.map((booking) => (
+              {filteredBookings.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="px-4 py-8 text-center text-gray-400 text-sm">No bookings found</td>
+                </tr>
+              ) : filteredBookings.map((booking) => (
                 <tr key={booking.id} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-4 py-3 text-sm font-medium text-gray-900">{booking.id}</td>
+                  <td className="px-4 py-3 text-sm font-medium text-gray-900 font-mono">{String(booking.id).slice(-8)}</td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
                       <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 text-xs font-semibold">
-                        {booking.customerName.split(' ').map(n => n[0]).join('').slice(0,2)}
+                        {(booking.customerName || '?').split(' ').map(n => n[0]).join('').slice(0,2)}
                       </div>
                       <div>
                         <p className="text-sm font-medium text-gray-900">{booking.customerName}</p>
@@ -180,18 +180,17 @@ const Bookings = () => {
                   </td>
                   <td className="px-4 py-3">
                     <span className="px-2 py-1 bg-gray-100 text-gray-700 text-xs rounded font-medium">
-                      {booking.slotNumber}{booking.floor!== '-'? ` - F${booking.floor}` : ''}
+                      {booking.slotNumber}
                     </span>
                   </td>
                   <td className="px-4 py-3">
                     <div className="text-sm">
                       <p className="text-gray-900 flex items-center gap-1"><Calendar className="w-3 h-3 text-gray-400" />{booking.bookingDate}</p>
-                      <p className="text-xs text-gray-500 flex items-center gap-1 mt-1"><Clock className="w-3 h-3" />{booking.entryTime} - {booking.exitTime}</p>
+                      <p className="text-xs text-gray-500 flex items-center gap-1 mt-1"><Clock className="w-3 h-3" />{booking.entryTime}{booking.exitTime !== '-' ? ` - ${booking.exitTime}` : ''}</p>
                     </div>
                   </td>
                   <td className="px-4 py-3">
-                    <p className="text-sm font-semibold text-green-600">Rs. {booking.amount}</p>
-                    <p className="text-xs text-gray-500">{booking.duration}</p>
+                    <p className="text-sm font-semibold text-green-600">Rs. {booking.amount.toLocaleString()}</p>
                   </td>
                   <td className="px-4 py-3">
                     <span className={`px-2 py-1 text-xs rounded-full border ${getStatusColor(booking.status)}`}>{booking.status}</span>
@@ -219,14 +218,14 @@ const Bookings = () => {
               <button onClick={() => setSelectedBooking(null)} className="p-2 hover:bg-gray-100 rounded-lg"><X className="w-5 h-5" /></button>
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <div><p className="text-sm text-gray-500">Booking ID</p><p className="text-gray-900 font-medium">{selectedBooking.id}</p></div>
+              <div><p className="text-sm text-gray-500">Booking ID</p><p className="text-gray-900 font-medium font-mono">{String(selectedBooking.id).slice(-8)}</p></div>
               <div><p className="text-sm text-gray-500">Status</p><span className={`px-2 py-1 text-xs rounded-full border inline-block mt-1 ${getStatusColor(selectedBooking.status)}`}>{selectedBooking.status}</span></div>
               <div><p className="text-sm text-gray-500">Customer</p><p className="text-gray-900 font-medium">{selectedBooking.customerName}</p></div>
               <div><p className="text-sm text-gray-500">Phone</p><p className="text-gray-900 font-medium">{selectedBooking.phone}</p></div>
               <div><p className="text-sm text-gray-500">Vehicle</p><p className="text-gray-900 font-medium">{selectedBooking.vehicleNo}</p></div>
               <div><p className="text-sm text-gray-500">Slot</p><p className="text-gray-900 font-medium">{selectedBooking.slotNumber}</p></div>
               <div><p className="text-sm text-gray-500">Date</p><p className="text-gray-900 font-medium">{selectedBooking.bookingDate}</p></div>
-              <div><p className="text-sm text-gray-500">Amount</p><p className="text-green-600 font-bold">Rs. {selectedBooking.amount}</p></div>
+              <div><p className="text-sm text-gray-500">Amount</p><p className="text-green-600 font-bold">Rs. {selectedBooking.amount.toLocaleString()}</p></div>
             </div>
           </div>
         </div>

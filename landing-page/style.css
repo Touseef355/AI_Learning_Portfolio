@@ -119,6 +119,7 @@ body {
     padding: 14px 30px;
     border-radius: 30px;
     margin-right: 10px;
+    cursor: pointer;
 }
 
 .btn-secondary {

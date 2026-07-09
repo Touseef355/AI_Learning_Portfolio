@@ -1,12 +1,15 @@
-from django.urls import path
+from django.urls import path,include
 from .views import (
     ParkingSiteView,
     ParkingSiteDetailView,
     ParkingSlotView,
     ParkingSlotDetailView,
+    BulkGenerateSlotsView,
+    BulkDeleteSlotsView,
+    BulkUpdateRateView,
     VehicleView,
     VehicleDetailView,
-    AdminSystemSettingsView,
+    AdminSystemSettingsView
 )
 
 
@@ -19,6 +22,11 @@ urlpatterns = [
     # Parking Slots
     path('sites/<uuid:site_id>/slots/', ParkingSlotView.as_view(), name='parking-slots'),
     path('slots/<uuid:pk>/', ParkingSlotDetailView.as_view(), name='parking-slot-detail'),
+
+    # Bulk Slot Management
+    path('sites/<uuid:site_id>/slots/bulk-generate/', BulkGenerateSlotsView.as_view(), name='bulk-generate-slots'),
+    path('sites/<uuid:site_id>/slots/bulk-delete/', BulkDeleteSlotsView.as_view(), name='bulk-delete-slots'),
+    path('sites/<uuid:site_id>/slots/bulk-update-rate/', BulkUpdateRateView.as_view(), name='bulk-update-rate'),
 
     # Vehicles
     path('vehicles/', VehicleView.as_view(), name='vehicles'),

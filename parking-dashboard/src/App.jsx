@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom'
 
 // ── Admin pages ────────────────────────────────────────────────
 import AdminDashboard from './pages/admin/AdminDashboard'
@@ -107,6 +107,22 @@ function CashierRoute({ element }) {
   )
 }
 
+function EntryCashierRoute({ element }) {
+  return (
+    <RequireAuth allowedRoles={['entry_cashier']}>
+      <CashierLayout>{element}</CashierLayout>
+    </RequireAuth>
+  )
+}
+
+function ExitCashierRoute({ element }) {
+  return (
+    <RequireAuth allowedRoles={['exit_cashier']}>
+      <CashierLayout>{element}</CashierLayout>
+    </RequireAuth>
+  )
+}
+
 export default function App() {
   return (
     <BrowserRouter>
@@ -116,32 +132,27 @@ export default function App() {
         <Route path="/" element={<RootRedirect />} />
 
         {/* ── Admin ── */}
-        <Route
-          path="/admin/dashboard/*"
-          element={
-            <RequireAuth allowedRoles={['admin']}>
-              <NotificationProvider>
-                <AdminLayout>
-                  <Routes>
-                    <Route index element={<AdminDashboard />} />
-                    <Route path="owner-accounts" element={<OwnerAccounts />} />
-                    <Route path="parking-sites" element={<ParkingSites />} />
-                    <Route path="payments" element={<AdminPayments />} />
-                    <Route path="queries" element={<Queries />} />
-                    <Route path="reports" element={<AdminReports />} />
-                    <Route path="settings" element={<AdminSettings />} />
-                    <Route path="system-logs" element={<SystemLogs />} />
-                    <Route path="user-accounts" element={<UserAccounts />} />
-                    <Route path="ai-monitor" element={<AIModelMonitor />} />
-                    <Route path="refunds" element={<Refunds />} />
-                    <Route path="peak-hours" element={<PeakHourDashboard />} />
-                  </Routes>
-                </AdminLayout>
-                <ToastContainer />
-              </NotificationProvider>
-            </RequireAuth>
-          }
-        />
+        <Route element={
+          <RequireAuth allowedRoles={['admin']}>
+            <NotificationProvider>
+              <AdminLayout />
+              <ToastContainer />
+            </NotificationProvider>
+          </RequireAuth>
+        }>
+          <Route path="/admin/dashboard" element={<AdminDashboard />} />
+          <Route path="/admin/dashboard/owner-accounts" element={<OwnerAccounts />} />
+          <Route path="/admin/dashboard/parking-sites" element={<ParkingSites />} />
+          <Route path="/admin/dashboard/payments" element={<AdminPayments />} />
+          <Route path="/admin/dashboard/queries" element={<Queries />} />
+          <Route path="/admin/dashboard/reports" element={<AdminReports />} />
+          <Route path="/admin/dashboard/settings" element={<AdminSettings />} />
+          <Route path="/admin/dashboard/system-logs" element={<SystemLogs />} />
+          <Route path="/admin/dashboard/user-accounts" element={<UserAccounts />} />
+          <Route path="/admin/dashboard/ai-monitor" element={<AIModelMonitor />} />
+          <Route path="/admin/dashboard/refunds" element={<Refunds />} />
+          <Route path="/admin/dashboard/peak-hours" element={<PeakHourDashboard />} />
+        </Route>
 
         <Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />
 
@@ -167,8 +178,8 @@ export default function App() {
         </Route>
 
         {/* ── Cashier ── */}
-        <Route path="/cashier/entry" element={<CashierRoute element={<EntryGate />} />} />
-        <Route path="/cashier/exit" element={<CashierRoute element={<ExitGate />} />} />
+        <Route path="/cashier/entry" element={<EntryCashierRoute element={<EntryGate />} />} />
+        <Route path="/cashier/exit" element={<ExitCashierRoute element={<ExitGate />} />} />
         <Route path="/cashier/dashboard" element={<CashierRoute element={<CashierDashboard />} />} />
         <Route path="/cashier/bookings" element={<CashierRoute element={<CashierBookings />} />} />
         <Route path="/cashier/payments" element={<CashierRoute element={<CashierPayments />} />} />

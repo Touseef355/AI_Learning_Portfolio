@@ -20,6 +20,24 @@ def get_user_from_token(token_key):
         return None
 
 
+
+
+@database_sync_to_async
+def get_gate_groups(user, prefix):
+    """Cashier -> apni site ka group; owner -> apni saari sites;
+    admin -> sab sites. Site-less cashier ko kuch nahi milta."""
+    role = getattr(user, "role", "user")
+    from parking.models import ParkingSite
+    if role == "admin":
+        ids = ParkingSite.objects.values_list("id", flat=True)
+        return [f"{prefix}_{sid}" for sid in ids]
+    if role == "parking_owner":
+        ids = ParkingSite.objects.filter(owner=user).values_list("id", flat=True)
+        return [f"{prefix}_{sid}" for sid in ids]
+    sid = getattr(user, "site_id", None)
+    return [f"{prefix}_{sid}"] if sid else []
+
+
 class EntryConsumer(AsyncWebsocketConsumer):
 
     async def connect(self):
@@ -48,10 +66,8 @@ class EntryConsumer(AsyncWebsocketConsumer):
                 pass
 
         if self.authenticated:
-            await self.channel_layer.group_discard(
-                "parking_entry",
-                self.channel_name
-            )
+            for g in getattr(self, "gate_groups", []):
+                await self.channel_layer.group_discard(g, self.channel_name)
         print(f"Entry Dashboard disconnected — code: {close_code}")
 
     async def receive(self, text_data):
@@ -104,10 +120,12 @@ class EntryConsumer(AsyncWebsocketConsumer):
             if self.auth_timeout_task:
                 self.auth_timeout_task.cancel()
 
-            await self.channel_layer.group_add(
-                "parking_entry",
-                self.channel_name
-            )
+            self.gate_groups = await get_gate_groups(user, "parking_entry")
+            if not self.gate_groups:
+                await self.close(code=4003)  # cashier bina site ke
+                return
+            for g in self.gate_groups:
+                await self.channel_layer.group_add(g, self.channel_name)
             await self.send(text_data=json.dumps({
                 "type"   : "auth_success",
                 "message": f"Welcome {user.full_name}",
@@ -173,10 +191,8 @@ class ExitConsumer(AsyncWebsocketConsumer):
                 pass
 
         if self.authenticated:
-            await self.channel_layer.group_discard(
-                "parking_exit",
-                self.channel_name
-            )
+            for g in getattr(self, "gate_groups", []):
+                await self.channel_layer.group_discard(g, self.channel_name)
         print(f"Exit Dashboard disconnected — code: {close_code}")
 
     async def receive(self, text_data):
@@ -228,10 +244,12 @@ class ExitConsumer(AsyncWebsocketConsumer):
             if self.auth_timeout_task:
                 self.auth_timeout_task.cancel()
 
-            await self.channel_layer.group_add(
-                "parking_exit",
-                self.channel_name
-            )
+            self.gate_groups = await get_gate_groups(user, "parking_exit")
+            if not self.gate_groups:
+                await self.close(code=4003)  # cashier bina site ke
+                return
+            for g in self.gate_groups:
+                await self.channel_layer.group_add(g, self.channel_name)
             await self.send(text_data=json.dumps({
                 "type"   : "auth_success",
                 "message": f"Welcome {user.full_name}",
@@ -267,4 +285,96 @@ class ExitConsumer(AsyncWebsocketConsumer):
             "booking_id"   : event.get("booking_id", ""),
             "booking_info" : event.get("booking_info"),
             "entry_found"  : event.get("entry_found", False),
+        }))
+
+class EventsConsumer(AsyncWebsocketConsumer):
+    """
+    ws/events/ — general-purpose realtime events channel.
+
+    Auth: same first-message-token pattern as EntryConsumer.
+    Role-based group subscription:
+        user           -> events_user_{id}
+        cashier/owner  -> events_site_{site_id} + events_user_{id}
+        admin          -> events_admin
+    Client ko har change pe {"event": "...", "data": {...}} milta hai;
+    client us event ke mutabiq apna cache invalidate/refetch karta hai.
+    """
+
+    async def connect(self):
+        self.authenticated = False
+        self.groups_joined = []
+        self.auth_timeout_task = None
+
+        await self.accept()
+        await self.send(text_data=json.dumps({
+            "type": "auth_required",
+            "message": "Send auth token to continue",
+        }))
+        self.auth_timeout_task = asyncio.create_task(self._auth_timeout())
+
+    async def _auth_timeout(self):
+        await asyncio.sleep(10)
+        if not self.authenticated:
+            await self.close(code=4008)
+
+    async def disconnect(self, close_code):
+        if self.auth_timeout_task:
+            self.auth_timeout_task.cancel()
+            try:
+                await self.auth_timeout_task
+            except asyncio.CancelledError:
+                pass
+        for g in self.groups_joined:
+            await self.channel_layer.group_discard(g, self.channel_name)
+
+    async def receive(self, text_data=None, bytes_data=None):
+        if self.authenticated:
+            return  # events channel is server -> client only
+        try:
+            payload = json.loads(text_data or "{}")
+        except json.JSONDecodeError:
+            return
+        token = payload.get("token")
+        user = await get_user_from_token(token) if token else None
+        if user is None:
+            await self.close(code=4001)
+            return
+
+        self.authenticated = True
+        self.scope["user"] = user
+        if self.auth_timeout_task:
+            self.auth_timeout_task.cancel()
+
+        groups = [f"events_user_{user.id}"]
+        role = getattr(user, "role", "user")
+        site_id = getattr(user, "site_id", None)
+        if role in ("cashier", "parking_owner") and site_id:
+            groups.append(f"events_site_{site_id}")
+        if role == "parking_owner":
+            # Owner ke multiple sites ho sakte hain — sab join karo.
+            site_ids = await self._owner_site_ids(user)
+            groups += [f"events_site_{sid}" for sid in site_ids
+                       if f"events_site_{sid}" not in groups]
+        if role == "admin":
+            groups.append("events_admin")
+
+        for g in groups:
+            await self.channel_layer.group_add(g, self.channel_name)
+        self.groups_joined = groups
+
+        await self.send(text_data=json.dumps({
+            "type": "auth_success",
+            "groups": len(groups),
+        }))
+
+    @database_sync_to_async
+    def _owner_site_ids(self, user):
+        from parking.models import ParkingSite
+        return [str(s) for s in
+                ParkingSite.objects.filter(owner=user).values_list("id", flat=True)]
+
+    async def broadcast_event(self, message):
+        await self.send(text_data=json.dumps({
+            "event": message["event"],
+            "data": message.get("data", {}),
         }))

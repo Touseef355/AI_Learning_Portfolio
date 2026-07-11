@@ -340,13 +340,29 @@ class PasswordResetVerifyView(APIView):
         if time.time() - saved_otp["time"] > 300:
             return Response({"error": "OTP Expired"}, status=status.HTTP_400_BAD_REQUEST)
 
+        # SECURITY FIX: 6-digit OTP par unlimited guesses allowed the —
+        # brute force possible tha. 5 galat attempts ke baad OTP invalidate.
+        attempts_key = f"reset_otp_attempts_{email}"
+        attempts = cache.get(attempts_key, 0)
+        if attempts >= 5:
+            cache.delete(f"reset_otp_{email}")
+            cache.delete(attempts_key)
+            return Response(
+                {"error": "Too many incorrect attempts. Request a new OTP."},
+                status=status.HTTP_429_TOO_MANY_REQUESTS
+            )
+
         if saved_otp["code"] != otp_code:
+            cache.set(attempts_key, attempts + 1, timeout=300)
             return Response(
                 {"error": "Invalid OTP"},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
         cache.set(f"reset_verified_{email}", True, timeout=300)
+        # OTP ek hi bar use ho — verify hote hi delete.
+        cache.delete(f"reset_otp_{email}")
+        cache.delete(attempts_key)
 
         return Response(
             {"message": "OTP verified successfully"},

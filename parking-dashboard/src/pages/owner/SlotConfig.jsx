@@ -110,6 +110,15 @@ const SlotConfig = () => {
   }
   const capacityPercent = stats.capacity > 0 ? Math.round((stats.total / stats.capacity) * 100) : 0
 
+  // ── Pricing mode (per-slot pricing) ────────────────────────────────
+  // Site ka pricing_type decide karta hai slot price ka matlab:
+  //   "hourly" -> slot price = Rate/Hour
+  //   "flat"   -> slot price = Base Price (first N hours ke liye total)
+  const isHourly = selectedSite?.pricing_type === 'hourly'
+  const flatHours = selectedSite?.flat_hours ?? 4
+  const priceLabel = isHourly ? 'Rate/Hour (Rs.)' : 'Base Price (Rs.)'
+  const priceSuffix = isHourly ? '/hr' : ' base' 
+
   // ── Bulk Generate ──────────────────────────────────────────────────
   const handleBulkGenerate = async () => {
     if (!siteId) return showToast('No site selected', 'error')
@@ -148,7 +157,7 @@ const SlotConfig = () => {
   const handleBulkRateUpdate = async () => {
     try {
       const res = await api.post(`/parking/sites/${siteId}/slots/bulk-update-rate/`, rateForm)
-      showToast(`💰 ${res.data.updated} ${rateForm.type} slots updated to Rs. ${rateForm.rate}/hr`)
+      showToast(`💰 ${res.data.updated} ${rateForm.type} slots updated to Rs. ${rateForm.rate}${priceSuffix}`)
       setShowRatePanel(false)
       await fetchSlots()
     } catch (err) {
@@ -177,14 +186,15 @@ const SlotConfig = () => {
 
   const handleSaveEdit = async () => {
     try {
-      await api.put(`/parking/slots/${editingSlot.id}/`, {
+      const res = await api.put(`/parking/slots/${editingSlot.id}/`, {
         slot_number: editingSlot.slotNumber.trim().toUpperCase(),
         slot_type: editingSlot.type,
         is_occupied: editingSlot.status === 'Occupied',
         is_reserved: editingSlot.status === 'Reserved',
         price_per_hour: parseFloat(editingSlot.rate) || 50
       })
-      showToast('✅ Slot updated')
+      // Backend batata hai agar slot free karne se bookings cancel+refund huin
+      showToast(res.data?.message ? `✅ ${res.data.message}` : '✅ Slot updated')
       setEditingSlot(null)
       await fetchSlots()
     } catch (err) {
@@ -195,8 +205,8 @@ const SlotConfig = () => {
   const handleDeleteSlot = async (id) => {
     setConfirmModal(null)
     try {
-      await api.delete(`/parking/slots/${id}/`)
-      showToast('🗑️ Slot deleted')
+      const res = await api.delete(`/parking/slots/${id}/`)
+      showToast(`🗑️ ${res.data?.message || 'Slot deleted'}`)
       await fetchSlots()
     } catch (err) {
       showToast(`❌ ${err.response?.data?.error || err.message}`, 'error')
@@ -384,6 +394,14 @@ const SlotConfig = () => {
             </button>
           </div>
 
+          <div className="bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 mb-5">
+            <p className="text-xs text-blue-700">
+              {isHourly
+                ? 'This site uses per-hour pricing — the price you set here is each slot\'s hourly rate.'
+                : `This site uses flat pricing — the price you set here is each slot's base price for the first ${flatHours} hours (extra hours charged at the site's extra-hour rate).`}
+            </p>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
             {/* Normal */}
             <div className="bg-emerald-50 rounded-xl p-4 border border-emerald-200">
@@ -399,7 +417,7 @@ const SlotConfig = () => {
                     className="w-full mt-1 px-3 py-2 bg-white border border-emerald-200 rounded-lg focus:ring-2 focus:ring-emerald-400 focus:outline-none" />
                 </div>
                 <div>
-                  <label className="text-xs text-emerald-600 font-medium">Rate/Hour (Rs.)</label>
+                  <label className="text-xs text-emerald-600 font-medium">{priceLabel}</label>
                   <input type="number" min="0" value={bulkForm.normal_rate}
                     onChange={e => setBulkForm({ ...bulkForm, normal_rate: parseInt(e.target.value) || 0 })}
                     className="w-full mt-1 px-3 py-2 bg-white border border-emerald-200 rounded-lg focus:ring-2 focus:ring-emerald-400 focus:outline-none" />
@@ -421,7 +439,7 @@ const SlotConfig = () => {
                     className="w-full mt-1 px-3 py-2 bg-white border border-purple-200 rounded-lg focus:ring-2 focus:ring-purple-400 focus:outline-none" />
                 </div>
                 <div>
-                  <label className="text-xs text-purple-600 font-medium">Rate/Hour (Rs.)</label>
+                  <label className="text-xs text-purple-600 font-medium">{priceLabel}</label>
                   <input type="number" min="0" value={bulkForm.vip_rate}
                     onChange={e => setBulkForm({ ...bulkForm, vip_rate: parseInt(e.target.value) || 0 })}
                     className="w-full mt-1 px-3 py-2 bg-white border border-purple-200 rounded-lg focus:ring-2 focus:ring-purple-400 focus:outline-none" />
@@ -443,7 +461,7 @@ const SlotConfig = () => {
                     className="w-full mt-1 px-3 py-2 bg-white border border-amber-200 rounded-lg focus:ring-2 focus:ring-amber-400 focus:outline-none" />
                 </div>
                 <div>
-                  <label className="text-xs text-amber-600 font-medium">Rate/Hour (Rs.)</label>
+                  <label className="text-xs text-amber-600 font-medium">{priceLabel}</label>
                   <input type="number" min="0" value={bulkForm.disabled_rate}
                     onChange={e => setBulkForm({ ...bulkForm, disabled_rate: parseInt(e.target.value) || 0 })}
                     className="w-full mt-1 px-3 py-2 bg-white border border-amber-200 rounded-lg focus:ring-2 focus:ring-amber-400 focus:outline-none" />
@@ -506,7 +524,7 @@ const SlotConfig = () => {
               </select>
             </div>
             <div className="flex-1">
-              <label className="text-sm text-gray-600 font-medium">New Rate/Hour (Rs.)</label>
+              <label className="text-sm text-gray-600 font-medium">New {priceLabel}</label>
               <input type="number" min="0" value={rateForm.rate}
                 onChange={e => setRateForm({ ...rateForm, rate: parseInt(e.target.value) || 0 })}
                 className="w-full mt-1 px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-400 focus:outline-none" />
@@ -545,7 +563,7 @@ const SlotConfig = () => {
               </select>
             </div>
             <div>
-              <label className="text-sm text-gray-500 font-medium">Rate/Hour (Rs.)</label>
+              <label className="text-sm text-gray-500 font-medium">{priceLabel}</label>
               <input type="number" value={newSlot.rate}
                 onChange={e => setNewSlot({ ...newSlot, rate: parseInt(e.target.value) })}
                 className="w-full mt-1 px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none" />
@@ -682,7 +700,7 @@ const SlotConfig = () => {
                       </span>
 
                       {/* Rate */}
-                      <p className="text-xs text-gray-500 mt-1.5">Rs. {slot.rate}/hr</p>
+                      <p className="text-xs text-gray-500 mt-1.5">Rs. {slot.rate}{priceSuffix}</p>
 
                       {/* Status text */}
                       <p className={`text-xs font-medium mt-1 ${style.text}`}>{slot.status}</p>

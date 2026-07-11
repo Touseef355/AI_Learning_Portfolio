@@ -38,6 +38,7 @@ ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "127.0.0.1,localhost").split(",")
 # Application definition
 
 INSTALLED_APPS = [
+    "daphne",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -49,6 +50,7 @@ INSTALLED_APPS = [
     "parking",
     "payments",
     "ai_module",
+    "notifications",
     "bookings.apps.BookingsConfig",
     "channels",
     "corsheaders",
@@ -102,6 +104,14 @@ DATABASES = {
         'OPTIONS': {'sslmode': 'require'},
     }
 }
+
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.sqlite3',
+#         'NAME': BASE_DIR / 'db.sqlite3',
+#     }
+# }
+
 
 
 # Password validation
@@ -228,8 +238,7 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:5500",
     "http://localhost:5501",
     "http://127.0.0.1:5501",
-    "http://127.0.0.1:5502",
-    "http://localhost:5502",
+    "http://127.0.0.1:5502"
 ]
 
 CORS_ALLOW_CREDENTIALS = True
@@ -291,3 +300,4 @@ SIMPAISA_BASE_URL = os.getenv("SIMPAISA_BASE_URL", "https://sandbox.simpaisa.com
 
 # Platform commission taken from each wallet-paid booking (10%)
 PLATFORM_COMMISSION = Decimal(os.getenv("PLATFORM_COMMISSION", "0.10"))
+PARKING_PASS_DISCOUNTS = {1: 10, 2: 15, 4: 25}  # weeks: % off

@@ -7,11 +7,11 @@ import os
 from dotenv import load_dotenv
 import base64
 from collections import Counter
-load_dotenv()
+load_dotenv("../backend/.env")
 
 # Django Exit API URL
 API_URL = "http://127.0.0.1:8000/api/ai/exit/"  
-API_KEY = os.getenv("CAMERA_API_KEY")
+API_KEY = os.getenv("EXIT_CAMERA_API_KEY")
 car_model = YOLO("yolov8n.pt")
 
 

@@ -13,6 +13,11 @@ export default function SiteDetail() {
     name: '',
     location: '',
     capacity: '',
+    pricing_type: 'flat',
+    flat_hours: 4,
+    flat_price: '',
+    extra_hour_rate: '',
+    price_per_hour: '',
   })
 
   const { id } = useParams()
@@ -39,6 +44,11 @@ export default function SiteDetail() {
       name: site.name || '',
       location: site.location || '',
       capacity: site.capacity || '',
+      pricing_type: site.pricing_type || 'flat',
+      flat_hours: site.flat_hours ?? 4,
+      flat_price: site.flat_price ?? '',
+      extra_hour_rate: site.extra_hour_rate ?? '',
+      price_per_hour: site.price_per_hour ?? '',
     })
     setShowModal(true)
   }
@@ -50,6 +60,18 @@ export default function SiteDetail() {
         name: formData.name,
         location: formData.location,
         capacity: parseInt(formData.capacity) || 0,
+        pricing_type: formData.pricing_type,
+      }
+
+      if (formData.pricing_type === 'flat') {
+        payload.flat_hours = parseInt(formData.flat_hours) || 4
+        payload.extra_hour_rate = formData.extra_hour_rate === '' ? null : parseFloat(formData.extra_hour_rate)
+        // Base price ab har slot pe set hoti hai (Slot Config) — site-level
+        // flat_price ko null kar do taake koi stale value fallback na bane.
+        payload.flat_price = null
+      } else {
+        // Hourly rate bhi per-slot hai — site-level rate null.
+        payload.price_per_hour = null
       }
 
       if (isEditing) {
@@ -167,9 +189,25 @@ export default function SiteDetail() {
           <div className="bg-green-50 p-4 rounded-lg">
             <div className="flex items-center gap-2 text-sm text-gray-500 mb-1">
               <DollarSign size={16} />
-              <span>Rate</span>
+              <span>Pricing</span>
             </div>
-            <p className="text-2xl font-bold text-green-600">Variable per slot</p>
+            {site.pricing_type === 'hourly' ? (
+              <>
+                <p className="text-2xl font-bold text-green-600">
+                  Per-slot hourly rates
+                </p>
+                <p className="text-xs text-gray-500 mt-1">Each slot's rate is set in Slot Config</p>
+              </>
+            ) : (
+              <>
+                <p className="text-2xl font-bold text-green-600">
+                  Slot base price / first {site.flat_hours ?? 4} hrs
+                </p>
+                <p className="text-xs text-gray-500 mt-1">
+                  Base price per slot (Slot Config) · Then Rs. {site.extra_hour_rate ?? '—'}/hr after
+                </p>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -225,6 +263,74 @@ export default function SiteDetail() {
                     placeholder="85"
                   />
                 </div>
+
+                <div className="col-span-2 pt-2 border-t">
+                  <label className="block text-sm font-medium mb-2">Pricing Model *</label>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, pricing_type: 'flat' })}
+                      className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors
+                        ${formData.pricing_type === 'flat'
+                          ? 'bg-blue-600 text-white border-blue-600'
+                          : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
+                    >
+                      Flat rate (first N hours)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, pricing_type: 'hourly' })}
+                      className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors
+                        ${formData.pricing_type === 'hourly'
+                          ? 'bg-blue-600 text-white border-blue-600'
+                          : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
+                    >
+                      Per hour
+                    </button>
+                  </div>
+                </div>
+
+                {formData.pricing_type === 'flat' ? (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Flat Hours *</label>
+                      <input
+                        type="number"
+                        value={formData.flat_hours}
+                        onChange={(e) => setFormData({ ...formData, flat_hours: e.target.value })}
+                        required
+                        min="1"
+                        className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                        placeholder="4"
+                      />
+                      <p className="text-xs text-gray-400 mt-1">Hours covered by each slot's base price.</p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Extra Hour Rate (Rs./hr) *</label>
+                      <input
+                        type="number"
+                        value={formData.extra_hour_rate}
+                        onChange={(e) => setFormData({ ...formData, extra_hour_rate: e.target.value })}
+                        required
+                        min="0"
+                        className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                        placeholder="50"
+                      />
+                      <p className="text-xs text-gray-400 mt-1">Charged per hour (or partial slab) after the flat window.</p>
+                    </div>
+                    <div className="col-span-2 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
+                      <p className="text-xs text-blue-700">
+                        Base price is set <span className="font-semibold">per slot</span> — configure it in Slot Config when creating slots.
+                      </p>
+                    </div>
+                  </>
+                ) : (
+                  <div className="col-span-2 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
+                    <p className="text-xs text-blue-700">
+                      Hourly rate is set <span className="font-semibold">per slot</span> — configure each slot's Rate/Hour in Slot Config.
+                    </p>
+                  </div>
+                )}
               </div>
 
               <div className="flex gap-3 pt-3">

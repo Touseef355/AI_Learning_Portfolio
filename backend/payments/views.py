@@ -13,6 +13,7 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 
 from accounts.permissions import IsAdmin
 from bookings.models import Booking
+from notifications.services import notify
 from .models import (
     Payment, Wallet, WalletTransaction,
     TopUpTransaction, WithdrawalRequest,
@@ -55,6 +56,17 @@ class PaymentView(APIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     def post(self, request):
+        # SECURITY FIX: pehle koi bhi authenticated user kisi BHI booking
+        # ka id bhej kar usay free me "paid" mark kar sakta tha (na
+        # ownership check tha, na koi paisa katta tha). App/dashboard is
+        # endpoint se payment create karte hi nahi (wallet flow alag hai),
+        # is liye ab ye sirf admin ke liye hai — manual reconciliation ke
+        # kaam ka.
+        if getattr(request.user, "role", "user") != "admin":
+            return Response(
+                {"error": "Only admin can record manual payments."},
+                status=status.HTTP_403_FORBIDDEN
+            )
         with db_transaction.atomic():
             serializer = PaymentSerializer(data=request.data)
             if serializer.is_valid():
@@ -62,6 +74,15 @@ class PaymentView(APIView):
                 booking = payment.booking
                 if booking:
                     booking.payment_status = "paid"
+                    # FIX: yahan status flip missing tha — WalletDeductView
+                    # to pending_payment → confirmed karta hai, lekin is
+                    # generic endpoint se aayi payment booking ko
+                    # "pending_payment" pe hi chhor deti thi. Entry gate ke
+                    # saare lookups status="confirmed" filter karte hain, is
+                    # liye aisi PAID booking gate pe invisible thi aur car
+                    # walk-in ban jati thi.
+                    if booking.status == "pending_payment":
+                        booking.status = "confirmed"
                     booking.save()
                 payment.status = "success"
                 payment.paid_at = timezone.now()
@@ -264,6 +285,15 @@ class WalletTopUpCallbackView(APIView):
             locked_txn.completed_at = timezone.now()
             locked_txn.save()
 
+            # Inside the atomic block + after the idempotency check, so a
+            # duplicate webhook can never produce a duplicate notification.
+            notify(
+                locked_txn.user,
+                "Wallet Topped Up",
+                f"Rs. {locked_txn.amount:.0f} added to your wallet.",
+                "wallet_topup",
+            )
+
 
 class MockPaymentConfirmView(APIView):
     """
@@ -330,10 +360,6 @@ class WalletDeductView(APIView):
 
     def post(self, request):
         booking_id = request.data.get("booking_id")
-        try:
-            amount = Decimal(str(request.data.get("amount", 0)))
-        except Exception:
-            return Response({"error": "Invalid amount"}, status=status.HTTP_400_BAD_REQUEST)
 
         if not booking_id:
             return Response({"error": "booking_id is required"}, status=status.HTTP_400_BAD_REQUEST)
@@ -348,7 +374,27 @@ class WalletDeductView(APIView):
         if booking.payment_status == "paid":
             return Response({"error": "Booking already paid"}, status=status.HTTP_400_BAD_REQUEST)
 
+        # SECURITY FIX: amount pehle client se aata tha aur is par koi
+        # <= 0 guard bhi nahi thi. Negative amount bhejne par
+        # `balance -= (-X)` se wallet me FREE paisa add ho jata tha aur
+        # booking bhi confirm; chhota amount bhej kar underpay bhi ho
+        # sakta tha. Ab charge hamesha server ka apna
+        # booking.estimated_amount hai — client ka bheja amount ignore.
+        amount = Decimal(str(booking.estimated_amount or 0))
+        if amount <= 0:
+            return Response(
+                {"error": "Booking has no payable amount — contact support."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         with db_transaction.atomic():
+            # Race guard: do parallel deduct requests dono pass na ho jayen.
+            booking = Booking.objects.select_for_update().select_related(
+                "parking_slot__parking_site__owner"
+            ).get(pk=booking.pk)
+            if booking.payment_status == "paid":
+                return Response({"error": "Booking already paid"}, status=status.HTTP_400_BAD_REQUEST)
+
             user_wallet = get_or_create_wallet(request.user)
 
             if user_wallet.balance < amount:
@@ -386,9 +432,38 @@ class WalletDeductView(APIView):
                 )
 
             booking.payment_status = "paid"
+            booking.payment_method = "wallet"
             if booking.status == "pending_payment":
                 booking.status = "confirmed"
             booking.save()
+
+            Payment.objects.create(
+                booking=booking,
+                amount=amount,
+                payment_method="wallet",
+                payment_type="booking",
+                payment_channel=None,
+                status="success",
+                paid_at=timezone.now(),
+            )
+
+            short_id = str(booking_id)[:8].upper()
+            slot_num = (
+                booking.parking_slot.slot_number
+                if booking.parking_slot else "—"
+            )
+            notify(
+                request.user,
+                "Payment Successful",
+                f"Rs. {amount:.0f} paid for booking #{short_id}.",
+                "payment_success",
+            )
+            notify(
+                request.user,
+                "Booking Confirmed",
+                f"Slot {slot_num} is reserved — booking #{short_id}. Show your QR at the gate.",
+                "booking_confirmed",
+            )
 
         return Response({
             "message": "Payment successful",
@@ -678,6 +753,13 @@ class AdminPaymentRefundView(APIView):
             if payment.booking:
                 payment.booking.payment_status = "failed"
                 payment.booking.save()
+                notify(
+                    payment.booking.user,
+                    "Refund Processed",
+                    f"Rs. {float(refund_amount):.0f} refunded for booking "
+                    f"#{str(payment.booking.id)[:8].upper()}.",
+                    "refund",
+                )
 
             return Response(
                 {"message": "Payment refunded successfully"},

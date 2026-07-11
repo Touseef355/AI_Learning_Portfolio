@@ -25,6 +25,7 @@ class ParkingSiteSerializer(serializers.ModelSerializer):
             'capacity', 'total_slots', 'total_floors',
             'opening_time', 'closing_time', 'status',
             'price_per_hour', 'rate_per_hour',
+            'pricing_type', 'flat_hours', 'flat_price', 'extra_hour_rate',
             'available_slots',
             'created_at', 'updated_at',
         ]

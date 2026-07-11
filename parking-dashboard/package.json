@@ -12,6 +12,7 @@
   "dependencies": {
     "@fontsource-variable/inter": "^5.2.8",
     "@supabase/supabase-js": "^2.106.0",
+    "@tanstack/react-query": "^5.101.2",
     "axios": "^1.14.0",
     "channels": "^0.0.4",
     "class-variance-authority": "^0.7.1",

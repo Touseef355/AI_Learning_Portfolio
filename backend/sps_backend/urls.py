@@ -35,6 +35,7 @@ urlpatterns = [
     path('api/bookings/', include('bookings.urls')),
     path('api/payments/', include('payments.urls')),
     path('api/ai/', include('ai_module.urls')),
+    path('api/notifications/', include('notifications.urls')),
 
     # backend_ali wrote this view but never wired it in — parkroo_app
     # (Flutter) already calls GET /api/config/ on boot and silently falls

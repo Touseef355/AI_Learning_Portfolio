@@ -92,7 +92,6 @@ function SiteModal({ site, onClose, onSave }) {
     name: site?.name || '',
     address: site?.address || '',
     total_slots: site?.total_slots || '',
-    price_per_hour: site?.price_per_hour || '',
     total_floors: site?.total_floors || '2',
     opening_time: site?.opening_time || '06:00',
     closing_time: site?.closing_time || '23:00',
@@ -119,7 +118,6 @@ function SiteModal({ site, onClose, onSave }) {
       name: form.name,
       address: form.address,
       total_slots: Number(form.total_slots),
-      price_per_hour: Number(form.price_per_hour) || 0,
       total_floors: Number(form.total_floors) || 2,
       opening_time: form.opening_time,
       closing_time: form.closing_time,
@@ -189,15 +187,10 @@ function SiteModal({ site, onClose, onSave }) {
           </div>
 
           <div>
-            <label className="text-xs font-semibold text-muted-foreground block mb-1">Price/Hour (Rs) *</label>
-            <input
-              type="number"
-              name="price_per_hour"
-              value={form.price_per_hour}
-              onChange={handleChange}
-              placeholder="60"
-              className="w-full border border-border rounded-lg px-3 py-2 text-sm bg-background text-foreground focus:outline-none focus:border-primary"
-            />
+            <label className="text-xs font-semibold text-muted-foreground block mb-1">Pricing</label>
+            <div className="w-full border border-border rounded-lg px-3 py-2 text-xs bg-background text-muted-foreground">
+              Prices are set per slot in the owner's Slot Config.
+            </div>
           </div>
 
           <div>
@@ -334,7 +327,8 @@ export default function ParkingSites() {
         name: site.name,
         address: site.address,
         total_slots: site.total_slots,
-        price_per_hour: site.price_per_hour,
+        // price_per_hour intentionally not sent — pricing is per slot now
+        // (Slot Config); site-level price is only a legacy fallback.
         total_floors: site.total_floors,
         opening_time: site.opening_time,
         closing_time: site.closing_time,
@@ -588,7 +582,7 @@ export default function ParkingSites() {
 
                   {/* RATE */}
                   <div className="col-span-1 text-center font-medium text-sm text-green-600">
-                    Rs. {site.price_per_hour || 0}
+                    {site.rate_per_hour ? `From Rs. ${site.rate_per_hour}` : '—'}
                   </div>
 
                   {/* TIMINGS */}

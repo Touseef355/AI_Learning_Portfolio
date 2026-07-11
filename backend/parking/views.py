@@ -1,9 +1,12 @@
+from decimal import Decimal
+from django.db import transaction as db_transaction
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from .models import ParkingSite, ParkingSlot, Vehicle
 from .serializers import ParkingSiteSerializer, ParkingSlotSerializer, VehicleSerializer
+from sps_backend.events import emit
 
 
 class ParkingSiteView(APIView):
@@ -91,13 +94,6 @@ class ParkingSlotView(APIView):
             )
         if request.user.role == "parking_owner" and site.owner != request.user:
             return Response({"error": "Not your site"}, status=status.HTTP_403_FORBIDDEN)
-
-        existing_count = ParkingSlot.objects.filter(parking_site=site).count()
-        if existing_count + 1 > (site.capacity or 9999):
-            return Response({
-                "error": f"Exceeds capacity. Site capacity is full ({site.capacity} slots)."
-            }, status=status.HTTP_400_BAD_REQUEST)
-
         serializer = ParkingSlotSerializer(data=request.data)
         if serializer.is_valid():
             # Prevent 500 error on duplicate slots
@@ -131,6 +127,67 @@ class ParkingSlotDetailView(APIView):
             user.role == "parking_owner" and slot.parking_site.owner == user
         )
 
+    # ── Live-booking safety ──────────────────────────────────────────
+    # FIX: owner dashboard se reserved slot ko "Available" karne (ya delete
+    # karne) par us par khari CONFIRMED/PAID booking chupchaap orphan ho
+    # jati thi — user ko na koi notification, na refund, aur slot dobara
+    # book ho sakta tha (delete pe to CASCADE se booking DB se hi ur jati
+    # thi). Ab: car andar ho ya active pass ho to block; upcoming paid
+    # bookings hon to unhe cancel + 100% refund + user notification ke
+    # saath hi slot free/delete hota hai.
+
+    def _live_state(self, slot):
+        from bookings.models import Booking, ParkingPass
+        active = Booking.objects.filter(parking_slot=slot, status="active").exists()
+        has_pass = ParkingPass.objects.filter(parking_slot=slot, status="active").exists()
+        upcoming = list(
+            Booking.objects.filter(
+                parking_slot=slot,
+                status__in=["confirmed", "pending_payment"],
+            ).select_related("user")
+        )
+        return active, has_pass, upcoming
+
+    @staticmethod
+    def _paid_amount(booking):
+        from django.db.models import Sum
+        from payments.models import Payment
+        total = Payment.objects.filter(
+            booking=booking, status="success", payment_type="booking",
+        ).aggregate(s=Sum("amount"))["s"] or Decimal("0")
+        if total == 0 and booking.payment_status == "paid":
+            total = Decimal(str(booking.estimated_amount or 0))
+        return total
+
+    def _cancel_upcoming(self, request, slot, upcoming, reason):
+        """Owner-initiated cancellation: full refund (user ka koi qusoor
+        nahi), notification, events. Caller transaction.atomic() me ho."""
+        from payments.services import process_booking_refund
+        from notifications.services import notify
+
+        cancelled, refunded_total = 0, Decimal("0")
+        for booking in upcoming:
+            paid = self._paid_amount(booking)
+            booking.status = "cancelled"
+            booking.save()
+            if paid > 0:
+                process_booking_refund(booking, paid, 100)
+                refunded_total += paid
+            short_id = str(booking.id)[:8].upper()
+            notify(
+                booking.user,
+                "Booking Cancelled by Parking Owner",
+                f"Slot {slot.slot_number} at {slot.parking_site.name} is no "
+                f"longer available, so booking #{short_id} was cancelled ({reason}). "
+                + (f"Rs. {paid:.0f} has been refunded to your wallet."
+                   if paid > 0 else "No payment had been made."),
+                "booking_cancelled",
+            )
+            cancelled += 1
+
+        emit("bookings.changed", site_id=slot.parking_site_id)
+        return cancelled, refunded_total
+
     def get(self, request, pk):
         slot = self.get_object(pk)
         if slot is None:
@@ -144,10 +201,44 @@ class ParkingSlotDetailView(APIView):
             return Response({"error": "Slot not found"}, status=status.HTTP_404_NOT_FOUND)
         if not self._can_modify(request.user, slot):
             return Response({"error": "Not your site"}, status=status.HTTP_403_FORBIDDEN)
+
+        # Kya ye edit slot ko free kar raha hai? (reserved/occupied → nahi)
+        freeing = (
+            (slot.is_reserved and request.data.get("is_reserved") is False) or
+            (slot.is_occupied and request.data.get("is_occupied") is False)
+        )
+
+        cancelled, refunded = 0, Decimal("0")
+        if freeing:
+            active, has_pass, upcoming = self._live_state(slot)
+            if active:
+                return Response(
+                    {"error": f"A vehicle is currently parked in slot "
+                              f"{slot.slot_number}. Process its exit from the "
+                              f"gate before freeing this slot."},
+                    status=status.HTTP_400_BAD_REQUEST)
+            if has_pass:
+                return Response(
+                    {"error": f"Slot {slot.slot_number} is held by an active "
+                              f"parking pass. Cancel the pass first."},
+                    status=status.HTTP_400_BAD_REQUEST)
+            if upcoming:
+                with db_transaction.atomic():
+                    cancelled, refunded = self._cancel_upcoming(
+                        request, slot, upcoming, "slot made available by owner"
+                    )
+
         serializer = ParkingSlotSerializer(slot, data=request.data, partial=True)
         if serializer.is_valid():
             serializer.save()
-            return Response(serializer.data, status=status.HTTP_200_OK)
+            emit("slots.changed", site_id=slot.parking_site_id)
+            data = serializer.data
+            if cancelled:
+                data["message"] = (
+                    f"Slot updated — {cancelled} upcoming booking(s) cancelled, "
+                    f"Rs. {refunded:.0f} refunded to customer wallet(s)."
+                )
+            return Response(data, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def delete(self, request, pk):
@@ -156,8 +247,35 @@ class ParkingSlotDetailView(APIView):
             return Response({"error": "Slot not found"}, status=status.HTTP_404_NOT_FOUND)
         if not self._can_modify(request.user, slot):
             return Response({"error": "Not your site"}, status=status.HTTP_403_FORBIDDEN)
-        slot.delete()
-        return Response({"message": "Slot deleted successfully"}, status=status.HTTP_200_OK)
+
+        active, has_pass, upcoming = self._live_state(slot)
+        if active:
+            return Response(
+                {"error": f"A vehicle is currently parked in slot "
+                          f"{slot.slot_number} — it cannot be deleted."},
+                status=status.HTTP_400_BAD_REQUEST)
+        if has_pass:
+            return Response(
+                {"error": f"Slot {slot.slot_number} is held by an active "
+                          f"parking pass. Cancel the pass first."},
+                status=status.HTTP_400_BAD_REQUEST)
+
+        with db_transaction.atomic():
+            cancelled, refunded = (0, Decimal("0"))
+            if upcoming:
+                cancelled, refunded = self._cancel_upcoming(
+                    request, slot, upcoming, "slot removed by owner"
+                )
+                # CASCADE unhe delete kar dega — cancelled + refunded record
+                # Payments/WalletTransactions me mehfooz hai.
+            slot.delete()
+            emit("slots.changed", site_id=slot.parking_site_id)
+
+        msg = "Slot deleted successfully"
+        if cancelled:
+            msg += (f" — {cancelled} upcoming booking(s) cancelled, "
+                    f"Rs. {refunded:.0f} refunded")
+        return Response({"message": msg}, status=status.HTTP_200_OK)
 
 
 class BulkGenerateSlotsView(APIView):
@@ -287,17 +405,37 @@ class BulkDeleteSlotsView(APIView):
 
         slot_type = request.data.get("type", None)
         qs = ParkingSlot.objects.filter(parking_site=site, is_occupied=False)
-        
+
         if slot_type:
             qs = qs.filter(slot_type=slot_type)
 
-        count = qs.count()
-        qs.delete()
+        # FIX: pehle reserved slots bhi delete ho jate the — un par khari
+        # confirmed/paid bookings CASCADE se chupchaap DB se ur jati theen
+        # (na refund, na notification). Ab live bookings/passes wale slots
+        # skip hote hain; unhe individually delete karo to cancel+refund
+        # cascade chalta hai (ParkingSlotDetailView.delete).
+        protected_ids = set(qs.filter(
+            bookings__status__in=["active", "confirmed", "pending_payment"]
+        ).values_list("id", flat=True))
+        from bookings.models import ParkingPass
+        protected_ids |= set(ParkingPass.objects.filter(
+            parking_slot__in=qs, status="active"
+        ).values_list("parking_slot_id", flat=True))
+
+        deletable = qs.exclude(id__in=protected_ids)
+        count   = deletable.count()
+        skipped = len(protected_ids)
+        deletable.delete()
+        emit("slots.changed", site_id=site.id)
 
         remaining = ParkingSlot.objects.filter(parking_site=site).count()
+        msg = f"Deleted {count} unoccupied slots"
+        if skipped:
+            msg += f" — {skipped} skipped (active bookings or passes)"
         return Response({
-            "message": f"Deleted {count} unoccupied slots",
+            "message": msg,
             "deleted": count,
+            "skipped": skipped,
             "remaining": remaining
         }, status=status.HTTP_200_OK)
 

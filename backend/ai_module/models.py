@@ -14,6 +14,14 @@ class AiLog(models.Model):
     )
     processed_model_name = models.CharField(max_length=50)
     detected_at = models.DateTimeField(auto_now_add=True)
+    # Site jis ke gate pe yeh detection hui — saari queues/logs isi se
+    # scope hoti hain (cross-site data leak prevention).
+    parking_site = models.ForeignKey(
+        'parking.ParkingSite',
+        on_delete=models.SET_NULL,
+        related_name='ai_logs',
+        null=True, blank=True,
+    )
     entry_exit_point = models.CharField(
         max_length=50,
         null=True,
@@ -67,6 +75,14 @@ class AiLog(models.Model):
 class CameraAPIKey(models.Model):
     key=models.CharField(max_length=64, unique=True)
     camera_name=models.CharField(max_length=50)
+    # Multi-site isolation: har key EK site se bandhi hai — key se hi
+    # pata chalta hai ke detection kis site ke gate se aayi.
+    parking_site = models.ForeignKey(
+        'parking.ParkingSite',
+        on_delete=models.CASCADE,
+        related_name='camera_keys',
+        null=True, blank=True,
+    )
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 

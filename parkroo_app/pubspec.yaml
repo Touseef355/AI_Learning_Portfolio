@@ -1,0 +1,42 @@
+name: parkroo_app
+description: Parkroo - Smart Parking System
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.2.1
+  shared_preferences: ^2.2.3
+  image_picker: ^1.1.2
+  webview_flutter: ^4.10.0
+  cupertino_icons: ^1.0.6
+  qr_flutter: ^4.1.0
+  web_socket_channel: ^3.0.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+     # Auth Screens
+     - assets/images/auth/
+     # Onboarding
+     - assets/images/onboarding/
+     # dashboard
+     - assets/images/dashboard/
+     # Empty States
+     - assets/images/empty_states/
+     # Parking
+     - assets/images/parking/
+     # Branding
+     - assets/images/branding/
+     # Profile
+     - assets/images/profile/ 

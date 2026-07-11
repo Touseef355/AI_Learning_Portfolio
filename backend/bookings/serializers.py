@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from django.utils import timezone
 
-from .models import Booking
+from .models import Booking, ParkingPass
 from parking.models import ParkingSlot, Vehicle
 
 BUFFER_MINUTES = 15  # gap required between consecutive bookings on the same slot
@@ -42,6 +42,9 @@ class BookingSerializer(serializers.ModelSerializer):
             'id', 'user', 'status', 'payment_status', 'payment_method',
             'created_at', 'parking_slot_detail', 'slot_number',
             'vehicle_plate', 'vehicle_name', 'user_name', 'duration',
+            # Server-computed from the site's pricing_type (parking.pricing) —
+            # never trust a client-supplied amount for what gets charged.
+            'estimated_amount',
         ]
 
     # ── Display helpers ───────────────────────────────────────────────────────
@@ -107,12 +110,15 @@ class BookingSerializer(serializers.ModelSerializer):
             if mins < 15:
                 raise serializers.ValidationError("Minimum booking duration is 15 minutes")
 
-        # One active booking per vehicle at a time
+        # One live booking per vehicle at a time
+        # FIX: sirf 'active' check hota tha — paid (confirmed) ya
+        # payment-pending booking hote hue bhi usi vehicle ki doosri
+        # booking ban jati thi.
         vehicle = data.get('vehicle')
         if vehicle and user:
             active_exists = Booking.objects.filter(
                 vehicle=vehicle,
-                status='active',
+                status__in=['active', 'confirmed', 'pending_payment'],
             ).exists()
             if active_exists:
                 raise serializers.ValidationError(
@@ -125,9 +131,13 @@ class BookingSerializer(serializers.ModelSerializer):
         # (existing booking's exit padded by the buffer).
         if slot and entry and exit_:
             buffer = timezone.timedelta(minutes=BUFFER_MINUTES)
+            # FIX: overlap bhi sirf 'active' dekh raha tha — matlab kisi ki
+            # PAID (confirmed) booking ke upar doosra user wohi slot wohi
+            # time book (aur pay) kar sakta tha jab tak pehli car enter na
+            # ho. pending_payment bhi hold hai (slot reserved), wo bhi count.
             overlap = Booking.objects.filter(
                 parking_slot=slot,
-                status='active',
+                status__in=['active', 'confirmed', 'pending_payment'],
                 entry_time__lt=exit_,
                 exit_time__gt=entry - buffer,
             ).exists()
@@ -141,3 +151,18 @@ class BookingSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("This slot is currently occupied")
 
         return data
+
+
+class ParkingPassSerializer(serializers.ModelSerializer):
+    site_name = serializers.CharField(source="parking_slot.parking_site.name", read_only=True)
+    slot_number = serializers.CharField(source="parking_slot.slot_number", read_only=True)
+    vehicle_plate = serializers.CharField(source="vehicle.plate_number", read_only=True)
+    vehicle_name = serializers.CharField(source="vehicle.name", read_only=True)
+
+    class Meta:
+        model = ParkingPass
+        fields = [
+            "id", "site_name", "slot_number", "vehicle_plate", "vehicle_name",
+            "start_date", "end_date", "daily_start", "daily_end",
+            "duration_weeks", "amount", "discount_percent", "status", "created_at",
+        ]

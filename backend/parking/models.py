@@ -4,6 +4,11 @@ from django.conf import settings
 
 
 class ParkingSite(models.Model):
+    PRICING_TYPE_CHOICES = (
+        ("flat", "Flat rate (first N hours) + hourly after"),
+        ("hourly", "Pure per-hour"),
+    )
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -21,9 +26,35 @@ class ParkingSite(models.Model):
     opening_time = models.TimeField(null=True, blank=True)
     closing_time = models.TimeField(null=True, blank=True)
     status = models.CharField(max_length=50, null=True, blank=True)
+    # Used directly when pricing_type == "hourly" (rate charged per hour,
+    # no flat window). Also still the per-slot override base for ParkingSlot.
     price_per_hour = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     contact_number = models.CharField(max_length=20, null=True, blank=True)
     city = models.TextField(null=True, blank=True)
+
+    # ── Pricing model ────────────────────────────────────────────────
+    # "flat"   (default): first `flat_hours` hours cost `flat_price` total,
+    #          then `extra_hour_rate` per hour (or partial slab) after that.
+    # "hourly": no flat window — straight `price_per_hour` x hours.
+    # Owners default to "flat" and can switch to "hourly" from the dashboard.
+    pricing_type = models.CharField(
+        max_length=10, choices=PRICING_TYPE_CHOICES, default="flat",
+    )
+    flat_hours = models.PositiveIntegerField(
+        default=4,
+        help_text="Number of hours covered by the flat price (flat pricing only).",
+    )
+    flat_price = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True,
+        help_text="Total price for the first `flat_hours` hours. "
+                   "Falls back to global PARKING_BASE_PRICE if not set.",
+    )
+    extra_hour_rate = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True,
+        help_text="Rate charged per hour (or partial slab) after flat_hours. "
+                   "Falls back to global PARKING_EXTRA_PER_HOUR if not set.",
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

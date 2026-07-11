@@ -29,7 +29,7 @@ function useGraceCountdown(entryTime, isOverstay) {
 }
 
 // ── Receipt printer ────────────────────────────────────────────
-function printReceipt({ plate, slot, amount, baseAmount, overstayCharge, entryTime, method, receiptNo }) {
+function printReceipt({ plate, slot, amount, baseAmount, overstayCharge, alreadyPaid, entryTime, method, receiptNo }) {
   const win = window.open('', '_blank', 'width=340,height=560')
   const now   = new Date().toLocaleString('en-PK', { dateStyle: 'medium', timeStyle: 'short' })
   const entry = entryTime ? new Date(entryTime).toLocaleString('en-PK', { dateStyle: 'medium', timeStyle: 'short' }) : '—'
@@ -65,7 +65,8 @@ function printReceipt({ plate, slot, amount, baseAmount, overstayCharge, entryTi
       <hr/>
       ${baseAmount ? `<div class="row"><span class="label">Base amount</span><span>Rs. ${baseAmount}</span></div>` : ''}
       ${overstayCharge > 0 ? `<div class="row warn"><span class="label">Overstay charge</span><span>Rs. ${overstayCharge}</span></div>` : ''}
-      <div class="total">Total paid: Rs. ${amount ?? '—'}</div>
+      ${alreadyPaid > 0 ? `<div class="row" style="color:#047857"><span class="label" style="color:#047857">Paid online</span><span>− Rs. ${alreadyPaid}</span></div>` : ''}
+      <div class="total">${(amount ?? 0) > 0 ? `Collected now: Rs. ${amount}` : 'Nothing due — prepaid'}</div>
       ${receiptNo ? `<div class="row" style="margin-top:6px"><span class="label">Receipt #</span><span>${receiptNo}</span></div>` : ''}
       <hr/>
       <div class="footer">Thank you for using Parkroo.<br/>Drive safely!</div>
@@ -246,6 +247,7 @@ export default function ExitGate() {
         slot          : res.data?.slot || pending.booking_info?.slot || pending.slot,
         baseAmount    : pending.booking_info?.base_amount,
         overstayCharge: pending.booking_info?.overstay_charge ?? 0,
+        alreadyPaid   : pending.booking_info?.already_paid ?? 0,
       })
       setPending(null)
     } catch (err) {
@@ -278,6 +280,12 @@ export default function ExitGate() {
   const displayAmount = pending?.amount ?? null
   const entryTimeForTimer = pending?.entry_time || pending?.booking_info?.entry_time
   const isOverstay        = pending?.booking_info?.is_overstay ?? false
+
+  // Prepaid booking awareness — backend ab already_paid / amount_due bhejta hai.
+  const alreadyPaid = pending?.booking_info?.already_paid ?? 0
+  const amountDue   = pending?.booking_info?.amount_due ?? displayAmount
+  const isPrepaid   = alreadyPaid > 0 || pending?.booking_info?.payment_status === 'paid'
+  const nothingDue  = Boolean(pending?.entry_found && isPrepaid && Number(amountDue) === 0)
 
   return (
     <div className="space-y-5">
@@ -406,10 +414,17 @@ export default function ExitGate() {
               <div className="flex items-center justify-between mb-3">
                 <span className="text-sm font-medium text-foreground">Booking Info</span>
                 {pending?.booking_info && (
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                    pending.booking_info.is_overstay ? 'bg-amber-50 text-amber-600' : 'bg-green-50 text-green-600'}`}>
-                    {pending.booking_info.is_overstay ? 'Overstay' : 'On time'}
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    {isPrepaid && (
+                      <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-emerald-50 text-emerald-600">
+                        Paid online
+                      </span>
+                    )}
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                      pending.booking_info.is_overstay ? 'bg-amber-50 text-amber-600' : 'bg-green-50 text-green-600'}`}>
+                      {pending.booking_info.is_overstay ? 'Overstay' : 'On time'}
+                    </span>
+                  </div>
                 )}
               </div>
               {pending?.booking_info ? (
@@ -453,11 +468,19 @@ export default function ExitGate() {
                           <span className="font-medium text-amber-600">Rs. {pending.booking_info.overstay_charge}</span>
                         </div>
                       )}
+                      {alreadyPaid > 0 && (
+                        <div className="flex justify-between text-sm pb-2 border-b border-border">
+                          <span className="text-emerald-600">Paid online ✓</span>
+                          <span className="font-medium text-emerald-600">− Rs. {alreadyPaid}</span>
+                        </div>
+                      )}
                     </>
                   ) : null}
                   <div className="flex justify-between text-sm font-semibold pt-1">
                     <span className="text-foreground">Total due</span>
-                    <span className="text-foreground">Rs. {displayAmount}</span>
+                    <span className={nothingDue ? 'text-emerald-600' : 'text-foreground'}>
+                      {nothingDue ? 'Rs. 0 — Already paid' : `Rs. ${amountDue ?? displayAmount}`}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -471,22 +494,35 @@ export default function ExitGate() {
               <AnimatePresence mode="wait">
                 {!decision ? (
                   <motion.div key="buttons" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-3">
-                    <button
-                      onClick={() => handleExit('cash')}
-                      disabled={!pending || !pending.entry_found || loading}
-                      className="w-full flex items-center justify-center gap-2 py-3 bg-green-600 text-white rounded-lg text-sm font-medium disabled:opacity-40 hover:bg-green-700 transition-colors"
-                    >
-                      <Banknote className="w-4 h-4" />
-                      {loading ? 'Processing...' : 'Collect Cash + Allow Exit'}
-                    </button>
-                    <button
-                      onClick={() => handleExit('online')}
-                      disabled={!pending || !pending.entry_found || loading}
-                      className="w-full flex items-center justify-center gap-2 py-3 bg-primary text-primary-foreground rounded-lg text-sm font-medium disabled:opacity-40 hover:bg-primary/90 transition-colors"
-                    >
-                      <Smartphone className="w-4 h-4" />
-                      Online Paid + Allow Exit
-                    </button>
+                    {nothingDue ? (
+                      <button
+                        onClick={() => handleExit('online')}
+                        disabled={!pending || !pending.entry_found || loading}
+                        className="w-full flex items-center justify-center gap-2 py-3 bg-emerald-600 text-white rounded-lg text-sm font-medium disabled:opacity-40 hover:bg-emerald-700 transition-colors"
+                      >
+                        <CheckCircle className="w-4 h-4" />
+                        {loading ? 'Processing...' : 'Allow Exit — Already Paid'}
+                      </button>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => handleExit('cash')}
+                          disabled={!pending || !pending.entry_found || loading}
+                          className="w-full flex items-center justify-center gap-2 py-3 bg-green-600 text-white rounded-lg text-sm font-medium disabled:opacity-40 hover:bg-green-700 transition-colors"
+                        >
+                          <Banknote className="w-4 h-4" />
+                          {loading ? 'Processing...' : 'Collect Cash + Allow Exit'}
+                        </button>
+                        <button
+                          onClick={() => handleExit('online')}
+                          disabled={!pending || !pending.entry_found || loading}
+                          className="w-full flex items-center justify-center gap-2 py-3 bg-primary text-primary-foreground rounded-lg text-sm font-medium disabled:opacity-40 hover:bg-primary/90 transition-colors"
+                        >
+                          <Smartphone className="w-4 h-4" />
+                          Online Paid + Allow Exit
+                        </button>
+                      </>
+                    )}
                     <button
                       onClick={handleReject}
                       disabled={!pending || loading}
@@ -509,7 +545,9 @@ export default function ExitGate() {
                         <CheckCircle className="w-10 h-10 text-green-600 mx-auto mb-2" />
                         <p className="font-semibold text-foreground">Exit Allowed</p>
                         <p className="text-xs text-muted-foreground mt-1">
-                          Rs. {decision.data?.amount} — {decision.method === 'cash' ? 'Cash' : 'Online'}
+                          {Number(decision.data?.amount) > 0
+                            ? `Rs. ${decision.data?.amount} — ${decision.method === 'cash' ? 'Cash' : 'Online'}`
+                            : 'Nothing due — paid online in advance'}
                         </p>
                         <p className="text-xs text-muted-foreground">Slot {decision.slot} freed</p>
                         {/* ── Print Receipt button — only for cash ── */}
@@ -521,6 +559,7 @@ export default function ExitGate() {
                               amount        : decision.data?.amount,
                               baseAmount    : decision.baseAmount,
                               overstayCharge: decision.overstayCharge,
+                              alreadyPaid   : decision.alreadyPaid ?? 0,
                               entryTime     : decision.entryTime,
                               method        : 'cash',
                               receiptNo     : decision.data?.receipt_number,

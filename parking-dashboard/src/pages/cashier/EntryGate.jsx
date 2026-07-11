@@ -1,8 +1,8 @@
 import { useEffect, useState, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Camera, CheckCircle, XCircle, RefreshCw, PenLine, Keyboard, MapPin, Printer } from 'lucide-react'
+import { Camera, CheckCircle, XCircle, RefreshCw, PenLine, Keyboard, MapPin, Printer, AlertTriangle } from 'lucide-react'
 import api from '../../api/axios'
-import ManualEntryForm from '../../components/gate/ManualEntryForm'
+import ManualEntryForm from './ManualEntryForm'
 
 // ── Receipt printer ────────────────────────────────────────────
 function printReceipt({ plate, slot, type, entryTime, method, receiptNo }) {
@@ -56,6 +56,8 @@ export default function EntryGate() {
   const [editing, setEditing]   = useState(false)
   const [decision, setDecision] = useState(null)
   const [loading, setLoading]   = useState(false)
+  const [rechecking, setRechecking] = useState(false)
+  const [slotType, setSlotType]     = useState('normal') // walk-in slot type dropdown
   const [wsStatus, setWsStatus] = useState('disconnected')
 
   useEffect(() => {
@@ -95,7 +97,9 @@ export default function EntryGate() {
             vehicle_type         : data.vehicle_type,
             pre_assigned_slot    : data.pre_assigned_slot,
             entry_time           : data.entry_time,
+            parking_full         : !data.has_booking && !data.pre_assigned_slot,
           })
+          setSlotType(data.slot_type || 'normal')
           setPlate(data.plate_number)
           setDecision(null)
           setEditing(false)
@@ -121,6 +125,7 @@ export default function EntryGate() {
       const res = await api.get('/ai/pending/')
       if (res.data) {
         setPending(res.data)
+        setSlotType(res.data.slot_type || 'normal')
         setPlate(res.data.detected_plate_number)
         setDecision(null)
         setEditing(false)
@@ -132,6 +137,50 @@ export default function EntryGate() {
     }
   }
 
+  // FIX: plate edit hone par corrected plate ke against booking/pass/slot
+  // dobara check karo — pehle ye API call hoti hi nahi thi, is liye edit
+  // ke baad bhi purani (galat OCR) wali booking info hi dikhti rehti thi.
+  async function recheckPlate(requestedSlotType) {
+    if (!pending) return
+    setRechecking(true)
+    try {
+      const res = await api.post('/ai/check-entry-plate/', {
+        ai_log_id   : pending.id,
+        plate_number: plate,
+        slot_type   : requestedSlotType || slotType,
+      })
+      setPending(prev => ({
+        ...prev,
+        detected_plate_number: res.data.plate_number,
+        has_booking          : res.data.has_booking,
+        booking_info         : res.data.booking_info,
+        pre_assigned_slot    : res.data.pre_assigned_slot,
+        vehicle_type         : res.data.vehicle_type,
+        // FIX: backend parking_full nahi bhejta — walk-in + no slot se derive karo
+        parking_full         : !res.data.has_booking && !res.data.is_pass && !res.data.pre_assigned_slot,
+        booking_other_site   : res.data.booking_other_site ?? null,
+      }))
+      // Backend jo type ka slot de paya wahi dropdown me dikhao
+      if (res.data.slot_type) setSlotType(res.data.slot_type)
+      setPlate(res.data.plate_number)
+    } catch (error) {
+      console.error('Recheck error:', error)
+    } finally {
+      setRechecking(false)
+    }
+  }
+
+  async function handleSavePlate() {
+    setEditing(false)
+    await recheckPlate()
+  }
+
+  // Cashier ne walk-in ke liye slot type badla → us type ka slot dobara lo
+  async function handleSlotTypeChange(newType) {
+    setSlotType(newType)
+    await recheckPlate(newType)
+  }
+
   async function handleAllow() {
     if (!pending) return
     setLoading(true)
@@ -139,6 +188,7 @@ export default function EntryGate() {
       const res = await api.post('/ai/approve/', {
         ai_log_id   : pending.id,
         plate_number: plate,
+        slot_type   : slotType, // fallback slot pick ke liye (detect time pe slot na mila ho)
       })
       setDecision({
         type: 'allowed',
@@ -178,7 +228,8 @@ export default function EntryGate() {
 
   // Walk-in: slot assigned but not yet a booking_info slot
   const assignedSlot = pending?.booking_info?.slot ?? pending?.pre_assigned_slot ?? null
-  const isWalkIn     = pending && !pending.has_booking
+  const isWalkIn      = pending && !pending.has_booking
+  const isParkingFull = isWalkIn && !assignedSlot
 
   return (
     <div className="space-y-5">
@@ -213,24 +264,41 @@ export default function EntryGate() {
         </div>
       </div>
 
-      {/* ── Walk-in slot banner ─────────────────────────────── */}
+      {/* ── Walk-in slot / parking-full banner ───────────────── */}
       <AnimatePresence>
-        {isWalkIn && assignedSlot && (
-          <motion.div
-            initial={{ opacity: 0, y: -8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            className="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-xl px-5 py-3"
-          >
-            <MapPin className="w-5 h-5 text-blue-600 flex-shrink-0" />
-            <div className="flex-1">
-              <p className="text-sm font-semibold text-blue-800">Walk-in — Slot assigned</p>
-              <p className="text-xs text-blue-600 mt-0.5">Direct the driver to slot <span className="font-bold">{assignedSlot}</span> after allowing entry</p>
-            </div>
-            <span className="text-2xl font-bold font-mono text-blue-700 bg-blue-100 px-4 py-1.5 rounded-lg">
-              {assignedSlot}
-            </span>
-          </motion.div>
+        {isWalkIn && (
+          assignedSlot ? (
+            <motion.div
+              key="slot-banner"
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              className="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-xl px-5 py-3"
+            >
+              <MapPin className="w-5 h-5 text-blue-600 flex-shrink-0" />
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-blue-800">Walk-in — Slot assigned</p>
+                <p className="text-xs text-blue-600 mt-0.5">Direct the driver to slot <span className="font-bold">{assignedSlot}</span> after allowing entry</p>
+              </div>
+              <span className="text-2xl font-bold font-mono text-blue-700 bg-blue-100 px-4 py-1.5 rounded-lg">
+                {assignedSlot}
+              </span>
+            </motion.div>
+          ) : (
+            <motion.div
+              key="full-banner"
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              className="flex items-center gap-3 bg-red-50 border border-red-200 rounded-xl px-5 py-3"
+            >
+              <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0" />
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-red-800">Parking Full</p>
+                <p className="text-xs text-red-600 mt-0.5">No free {slotType} slot right now — try another slot type from the dropdown below, or wait for one to free up.</p>
+              </div>
+            </motion.div>
+          )
         )}
       </AnimatePresence>
 
@@ -308,13 +376,16 @@ export default function EntryGate() {
                         onChange={(e) => setPlate(e.target.value.toUpperCase())}
                         className="flex-1 px-3 py-2 text-sm font-mono tracking-widest border border-border rounded-lg bg-background focus:outline-none focus:ring-1 focus:ring-primary"
                         autoFocus
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleSavePlate() }}
                       />
-                      <button onClick={() => setEditing(false)} className="px-3 py-2 bg-primary text-primary-foreground rounded-lg text-sm">
-                        Save
+                      <button onClick={handleSavePlate} disabled={rechecking} className="px-3 py-2 bg-primary text-primary-foreground rounded-lg text-sm disabled:opacity-50">
+                        {rechecking ? 'Checking...' : 'Save'}
                       </button>
                     </div>
                   ) : (
-                    <div className="px-3 py-2 bg-secondary rounded-lg font-mono text-sm tracking-widest text-foreground">{plate}</div>
+                    <div className="px-3 py-2 bg-secondary rounded-lg font-mono text-sm tracking-widest text-foreground">
+                      {plate} {rechecking && <span className="text-xs text-muted-foreground ml-2">(rechecking...)</span>}
+                    </div>
                   )}
                 </>
               ) : (
@@ -327,27 +398,54 @@ export default function EntryGate() {
               <div className="flex items-center justify-between mb-3">
                 <span className="text-sm font-medium text-foreground">Booking Info</span>
                 {pending && (
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                    pending.has_booking ? 'bg-green-50 text-green-600' : 'bg-blue-50 text-blue-600'
-                  }`}>
-                    {pending.has_booking ? 'Booking found' : 'Walk-in'}
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    {pending.has_booking && pending.booking_info?.payment_status === 'paid' && (
+                      <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-emerald-50 text-emerald-600">
+                        Paid ✓
+                      </span>
+                    )}
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                      pending.has_booking ? 'bg-green-50 text-green-600' : 'bg-blue-50 text-blue-600'
+                    }`}>
+                      {pending.has_booking ? 'Booking found' : 'Walk-in'}
+                    </span>
+                  </div>
                 )}
               </div>
               {pending ? (
                 <div className="space-y-2">
+                  {/* Walk-in: cashier slot type chune — us type se slot milta hai */}
+                  {!pending.has_booking && !pending.is_pass && (
+                    <div className="flex justify-between items-center text-sm border-b border-border pb-2">
+                      <span className="text-muted-foreground">Slot type</span>
+                      <select
+                        value={slotType}
+                        onChange={(e) => handleSlotTypeChange(e.target.value)}
+                        disabled={rechecking || loading}
+                        className="px-2 py-1 text-sm font-medium border border-border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50"
+                      >
+                        <option value="normal">Normal</option>
+                        <option value="vip">VIP</option>
+                        <option value="disabled">Disabled</option>
+                      </select>
+                    </div>
+                  )}
                   {[
                     { label: 'Type',       value: pending.has_booking ? 'Pre-booked' : 'Walk-in' },
-                    { label: 'Slot',       value: assignedSlot ?? 'Finding...' },
+                    { label: 'Slot',       value: rechecking ? 'Finding...' : (assignedSlot ?? (isParkingFull ? `No ${slotType} slot free` : 'Finding...')) },
                     { label: 'Entry time', value: pending.entry_time ? new Date(pending.entry_time).toLocaleTimeString() : new Date().toLocaleTimeString() },
                     ...(pending.booking_info ? [{
                       label: 'Exit time',
                       value: pending.booking_info.exit_time ? new Date(pending.booking_info.exit_time).toLocaleTimeString() : '—'
+                    }] : []),
+                    ...(!pending.has_booking && pending.booking_other_site ? [{
+                      label: 'Note',
+                      value: `Booking exists at "${pending.booking_other_site}" — not this site`
                     }] : [])
                   ].map(({ label, value }) => (
                     <div key={label} className="flex justify-between text-sm border-b border-border pb-2 last:border-0 last:pb-0">
                       <span className="text-muted-foreground">{label}</span>
-                      <span className="font-medium text-foreground">{value}</span>
+                      <span className={`font-medium ${label === 'Slot' && isParkingFull ? 'text-red-600' : 'text-foreground'}`}>{value}</span>
                     </div>
                   ))}
                 </div>

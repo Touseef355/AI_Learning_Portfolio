@@ -131,7 +131,7 @@ export default function SlotGrid() {
                 </div>
                 {selectedSlot.price_per_hour && (
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Price/hour</span>
+                    <span className="text-muted-foreground">Price</span>
                     <span className="font-medium text-foreground">Rs. {selectedSlot.price_per_hour}</span>
                   </div>
                 )}

@@ -1,8 +1,6 @@
-🚗 SmartPark — AI-Powered Smart Parking Management System
+🚗SmartPark AI-Powered Smart Parking Management System
 
-«An intelligent, AI-enabled parking management platform that combines computer vision, automated vehicle identification, real-time parking management, and modern web/mobile applications to simplify parking operations and improve the parking experience.
-
----
+An intelligent, AI enabled parking management platform that combines computer vision, automated vehicle identification, real time parking management, and modern web/mobile applications to simplify parking operations and improve the parking experience.
 
 📌 Overview
 
@@ -561,8 +559,6 @@ git push origin feature/new-feature
 
 ---
 
-📄 License
-
 This project is intended primarily for academic and educational purposes.
 
 If you intend to distribute, modify, or use the project commercially, please contact the repository owner regarding licensing.
@@ -573,4 +569,4 @@ If you intend to distribute, modify, or use the project commercially, please con
 
 If you find this project useful or interesting, consider giving the repository a ⭐ on GitHub.
 
-SmartPark — Making Parking Smarter with AI. 🚗🤖
+SmartPark Making Parking Smarter with AI. 🚗🤖

@@ -1,13 +1,6 @@
 🚗 SmartPark — AI-Powered Smart Parking Management System
 
-«An intelligent, AI-enabled parking management platform that combines computer vision, automated vehicle identification, real-time parking management, and modern web/mobile applications to simplify parking operations and improve the parking experience.»
-
-""Status" (https://img.shields.io/badge/Project-Final%20Year%20Project-blue)" (https://github.com/Touseef355/SmartPark-FYP)
-""AI" (https://img.shields.io/badge/AI-Computer%20Vision-green)" (https://github.com/Touseef355/SmartPark-FYP)
-""Backend" (https://img.shields.io/badge/Backend-Django-darkgreen)" (https://github.com/Touseef355/SmartPark-FYP)
-""Frontend" (https://img.shields.io/badge/Frontend-React%20%2B%20Vite-61DAFB)" (https://github.com/Touseef355/SmartPark-FYP)
-""Mobile" (https://img.shields.io/badge/Mobile-Flutter-02569B)" (https://github.com/Touseef355/SmartPark-FYP)
-""License" (https://img.shields.io/badge/License-Academic-lightgrey)" (https://github.com/Touseef355/SmartPark-FYP)
+«An intelligent, AI-enabled parking management platform that combines computer vision, automated vehicle identification, real-time parking management, and modern web/mobile applications to simplify parking operations and improve the parking experience.
 
 ---
 
